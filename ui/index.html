@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Redline UI</title>
+    <link rel="stylesheet" href="/ui/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Redline</h1>
+        <p class="subtitle">Agent Safety Evals + Debate Mitigation</p>
+        <p class="subtitle">What this does: It tests an AI assistant with tricky safety questions. One click creates a project, loads test questions, runs a small evaluation, and shows the results.</p>
+      </header>
+
+      <section class="card">
+        <h2>Auth</h2>
+        <label>
+          Admin Key
+          <input id="adminKey" type="password" placeholder="X-Admin-Key" />
+        </label>
+        <p class="hint">Key is used only for this session and not stored.</p>
+      </section>
+
+      <section class="card">
+        <h2>Projects</h2>
+        <div class="row">
+          <input id="projectName" type="text" placeholder="Project name" />
+          <button id="createProject">Create</button>
+        </div>
+        <div class="row">
+          <button id="runDemo">Run one‑click demo</button>
+        </div>
+        <label>
+          Project ID
+          <input id="projectId" type="text" placeholder="UUID" />
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>Testcases</h2>
+        <div class="row">
+          <button id="seedTestcases">Seed default testcases</button>
+          <button id="listTestcases">List testcases</button>
+        </div>
+        <label>
+          Testcase IDs (comma-separated)
+          <textarea id="testcaseIds" rows="2" placeholder="uuid1, uuid2, ..."></textarea>
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>Runs</h2>
+        <div class="row">
+          <select id="runMode">
+            <option value="baseline">baseline</option>
+            <option value="debate">debate</option>
+          </select>
+          <input id="runModel" type="text" placeholder="Model (optional)" />
+          <input id="runSeed" type="number" value="0" />
+          <button id="createRun">Create run</button>
+        </div>
+        <label>
+          Run ID
+          <input id="runId" type="text" placeholder="UUID" />
+        </label>
+        <div class="row">
+          <button id="getRun">Get run summary</button>
+          <button id="getResults">Get results</button>
+          <button id="explainResults">Explain results</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Trace</h2>
+        <label>
+          Trace Testcase ID
+          <input id="traceTestcaseId" type="text" placeholder="UUID" />
+        </label>
+        <button id="getTrace">Get trace</button>
+      </section>
+
+      <section class="card">
+        <h2>Output</h2>
+        <pre id="output"></pre>
+      </section>
+    </main>
+
+    <script src="/ui/app.js"></script>
+  </body>
+</html>
