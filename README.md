@@ -187,5 +187,4 @@ pytest
 
 ---
 
-## License
-MIT (add your license if different)
+
