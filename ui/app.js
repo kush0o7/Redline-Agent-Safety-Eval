@@ -6,6 +6,14 @@ function getProjectId() {
   return document.getElementById("projectId").value.trim();
 }
 
+function requireProjectId() {
+  const projectId = getProjectId();
+  if (!projectId) {
+    throw new Error("Project ID is required. Create a project first.");
+  }
+  return projectId;
+}
+
 function output(value) {
   const el = document.getElementById("output");
   el.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
@@ -68,7 +76,11 @@ async function apiFetch(path, options = {}) {
 
 document.getElementById("createProject").addEventListener("click", async () => {
   try {
-    const name = document.getElementById("projectName").value.trim();
+    let name = document.getElementById("projectName").value.trim();
+    if (!name) {
+      name = `project-${Date.now()}`;
+      document.getElementById("projectName").value = name;
+    }
     const data = await apiFetch("/projects", {
       method: "POST",
       body: JSON.stringify({ name }),
@@ -123,7 +135,8 @@ document.getElementById("runDemo").addEventListener("click", async () => {
 
 document.getElementById("seedTestcases").addEventListener("click", async () => {
   try {
-    const projectId = getProjectId();
+    const projectId = requireProjectId();
+    output("Seeding default testcases...");
     const data = await apiFetch(`/projects/${projectId}/seed-testcases`, { method: "POST" });
     output(data);
   } catch (err) {
@@ -133,7 +146,7 @@ document.getElementById("seedTestcases").addEventListener("click", async () => {
 
 document.getElementById("listTestcases").addEventListener("click", async () => {
   try {
-    const projectId = getProjectId();
+    const projectId = requireProjectId();
     const data = await apiFetch(`/projects/${projectId}/testcases`);
     document.getElementById("testcaseIds").value = data.map((t) => t.id).join(", ");
     output(data);
@@ -144,7 +157,7 @@ document.getElementById("listTestcases").addEventListener("click", async () => {
 
 document.getElementById("createRun").addEventListener("click", async () => {
   try {
-    const projectId = getProjectId();
+    const projectId = requireProjectId();
     const testcaseIds = document.getElementById("testcaseIds").value
       .split(",")
       .map((id) => id.trim())
@@ -165,7 +178,7 @@ document.getElementById("createRun").addEventListener("click", async () => {
 
 document.getElementById("getRun").addEventListener("click", async () => {
   try {
-    const projectId = getProjectId();
+    const projectId = requireProjectId();
     const runId = document.getElementById("runId").value.trim();
     const data = await apiFetch(`/projects/${projectId}/runs/${runId}`);
     output(data);
@@ -176,7 +189,7 @@ document.getElementById("getRun").addEventListener("click", async () => {
 
 document.getElementById("getResults").addEventListener("click", async () => {
   try {
-    const projectId = getProjectId();
+    const projectId = requireProjectId();
     const runId = document.getElementById("runId").value.trim();
     const data = await apiFetch(`/projects/${projectId}/runs/${runId}/results`);
     output(data);
@@ -187,7 +200,7 @@ document.getElementById("getResults").addEventListener("click", async () => {
 
 document.getElementById("explainResults").addEventListener("click", async () => {
   try {
-    const projectId = getProjectId();
+    const projectId = requireProjectId();
     const runId = document.getElementById("runId").value.trim();
     const summaryResp = await apiFetch(`/projects/${projectId}/runs/${runId}`);
     const results = await apiFetch(`/projects/${projectId}/runs/${runId}/results`);
@@ -199,7 +212,7 @@ document.getElementById("explainResults").addEventListener("click", async () => 
 
 document.getElementById("getTrace").addEventListener("click", async () => {
   try {
-    const projectId = getProjectId();
+    const projectId = requireProjectId();
     const runId = document.getElementById("runId").value.trim();
     const testcaseId = document.getElementById("traceTestcaseId").value.trim();
     const data = await apiFetch(`/projects/${projectId}/runs/${runId}/traces/${testcaseId}`);

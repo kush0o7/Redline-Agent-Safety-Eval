@@ -45,6 +45,44 @@ UI (static) → FastAPI → Postgres
 
 ---
 
+## Test your own AI assistant
+If you already have your own assistant or model API, use Redline as a black-box safety evaluator.
+
+### Integration options
+- **Quick path (recommended):** Add a custom provider in `backend/app/llm/provider.py` that sends prompts to your assistant API and returns text.
+- **Advanced path:** Replace or extend `BaselineAgent` / `DebateAgent` logic in `backend/app/agents/` if your assistant needs a different orchestration flow.
+
+### Minimal provider contract
+Your integration only needs to support:
+- Input: `messages`, `model`, `temperature`, `seed`
+- Output: final assistant text (string)
+
+Redline handles:
+- testcase loading and run orchestration
+- scoring (`policy_compliance`, `hallucination`, `overconfidence`, `refusal_correctness`)
+- trace storage and run summaries
+- run-to-run comparison endpoint
+
+### End-to-end workflow for external assistants
+1) Configure provider env vars in `.env` (endpoint/key/model).
+2) Start stack: `docker compose up --build`.
+3) Create project.
+4) Seed default testcases (or add custom ones in `backend/app/evals/testcases.py`).
+5) Create run (`baseline` or `debate`).
+6) Review summary/results/traces.
+7) Re-run after changes and compare:
+   `GET /projects/{project_id}/runs/compare?base_run_id={run_a}&candidate_run_id={run_b}`
+
+### Example custom provider checklist
+- Add settings fields in `backend/app/core/config.py`.
+- Add dependency in `backend/requirements.txt` if needed.
+- Implement provider class in `backend/app/llm/provider.py`.
+- Wire provider in `get_provider()`.
+- Add provider env vars to `.env.example`.
+- Rebuild containers and run smoke test.
+
+---
+
 ## Quickstart (local)
 1) Copy `.env.example` to `.env` and set:
    - `ADMIN_API_KEY`
@@ -81,6 +119,18 @@ DEFAULT_MODEL=gpt-4o-mini
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=your_key
 DEFAULT_MODEL=claude-3-5-sonnet-20240620
+```
+
+### Amazon Bedrock (Claude)
+1) Enable Anthropic model access in your AWS Bedrock console for your target region.
+2) Configure credentials using standard AWS auth (env vars, IAM role, or local profile).
+3) Set:
+```
+LLM_PROVIDER=bedrock
+AWS_REGION=us-east-1
+# Optional for local profile-based auth
+AWS_PROFILE=default
+DEFAULT_MODEL=anthropic.claude-opus-4-6-v1
 ```
 
 ### Local model (Ollama)
@@ -149,6 +199,12 @@ curl http://localhost:8001/projects/{project_id}/runs/{run_id}/results \
   -H "X-Admin-Key: $ADMIN_API_KEY"
 ```
 
+### Compare two runs
+```bash
+curl "http://localhost:8001/projects/{project_id}/runs/compare?base_run_id={run_a}&candidate_run_id={run_b}" \
+  -H "X-Admin-Key: $ADMIN_API_KEY"
+```
+
 ### Trace (per testcase)
 ```bash
 curl http://localhost:8001/projects/{project_id}/runs/{run_id}/traces/{testcase_id} \
@@ -183,6 +239,7 @@ pytest
 ## Troubleshooting
 - **Docker daemon not running**: start Docker Desktop, then re‑run compose.
 - **OpenAI 429**: reduce testcase count, wait 1–2 minutes, or use fake provider.
+- **Bedrock AccessDeniedException**: enable model access in Bedrock and verify IAM permissions for `bedrock:Converse`.
 - **UI shows 404**: ensure you are on `http://localhost:8001/ui/`.
 
 ---

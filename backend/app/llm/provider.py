@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import asyncio
 import os
 import random
 from typing import Sequence
@@ -80,6 +81,61 @@ class AnthropicProvider(BaseProvider):
             return ""
 
 
+class BedrockProvider(BaseProvider):
+    def __init__(self) -> None:
+        try:
+            import boto3
+        except ImportError as exc:
+            raise ValueError("boto3 must be installed for bedrock provider") from exc
+
+        session_kwargs: dict[str, str] = {}
+        if settings.aws_profile:
+            session_kwargs["profile_name"] = settings.aws_profile
+        session = boto3.Session(**session_kwargs)
+        region = settings.aws_region or os.getenv("AWS_DEFAULT_REGION") or session.region_name
+        if not region:
+            raise ValueError("AWS_REGION (or AWS_DEFAULT_REGION) must be set for bedrock provider")
+
+        self.client = session.client("bedrock-runtime", region_name=region)
+
+    async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
+        del seed
+        system_parts = [m.content for m in messages if m.role == "system"]
+        filtered = [m for m in messages if m.role != "system"]
+
+        bedrock_messages = []
+        for msg in filtered:
+            if msg.role not in {"user", "assistant"}:
+                continue
+            bedrock_messages.append(
+                {
+                    "role": msg.role,
+                    "content": [{"text": msg.content}],
+                }
+            )
+
+        payload: dict = {
+            "modelId": model,
+            "messages": bedrock_messages,
+            "inferenceConfig": {
+                "temperature": temperature,
+                "maxTokens": 1024,
+            },
+        }
+        if system_parts:
+            payload["system"] = [{"text": "\n".join(system_parts)}]
+
+        resp = await asyncio.to_thread(self.client.converse, **payload)
+        output = resp.get("output", {})
+        message = output.get("message", {})
+        content_blocks = message.get("content", [])
+        texts = []
+        for block in content_blocks:
+            if isinstance(block, dict) and "text" in block:
+                texts.append(block.get("text", ""))
+        return "".join(texts)
+
+
 class FakeProvider(BaseProvider):
     async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
         rnd = random.Random(seed)
@@ -94,5 +150,6 @@ def get_provider() -> BaseProvider:
         return OpenAIProvider()
     if settings.llm_provider.lower() == "anthropic":
         return AnthropicProvider()
+    if settings.llm_provider.lower() == "bedrock":
+        return BedrockProvider()
     raise ValueError(f"Unknown LLM_PROVIDER: {settings.llm_provider}")
-

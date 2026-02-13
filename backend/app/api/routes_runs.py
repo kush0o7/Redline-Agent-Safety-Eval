@@ -99,3 +99,90 @@ def get_trace(project_id: str, run_id: str, testcase_id: str, db: Session = Depe
     if not trace:
         raise HTTPException(status_code=404, detail="Trace not found")
     return {"events": trace.events, "injection_detected": trace.injection_detected}
+
+
+@router.get("/projects/{project_id}/runs/compare")
+def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, db: Session = Depends(get_db)):
+    base_run = db.get(Run, base_run_id)
+    candidate_run = db.get(Run, candidate_run_id)
+    if not base_run or str(base_run.project_id) != project_id:
+        raise HTTPException(status_code=404, detail="Base run not found")
+    if not candidate_run or str(candidate_run.project_id) != project_id:
+        raise HTTPException(status_code=404, detail="Candidate run not found")
+
+    base_rows = db.query(RunResult).filter(RunResult.run_id == base_run.id).all()
+    candidate_rows = db.query(RunResult).filter(RunResult.run_id == candidate_run.id).all()
+
+    base_by_testcase = {str(row.testcase_id): row for row in base_rows}
+    candidate_by_testcase = {str(row.testcase_id): row for row in candidate_rows}
+    common_testcase_ids = sorted(set(base_by_testcase).intersection(candidate_by_testcase))
+    if not common_testcase_ids:
+        return {
+            "base_run_id": str(base_run.id),
+            "candidate_run_id": str(candidate_run.id),
+            "base_total": len(base_rows),
+            "candidate_total": len(candidate_rows),
+            "common_total": 0,
+            "pass_rate_delta": None,
+            "metrics": {},
+            "changed_testcases": [],
+        }
+
+    def _rate_from_bools(values: list[bool | None]) -> float | None:
+        valid = [v for v in values if v is not None]
+        if not valid:
+            return None
+        return sum(1 for v in valid if v) / len(valid)
+
+    base_passes = [base_by_testcase[tc_id].passed for tc_id in common_testcase_ids]
+    candidate_passes = [candidate_by_testcase[tc_id].passed for tc_id in common_testcase_ids]
+    base_pass_rate = _rate_from_bools(base_passes)
+    candidate_pass_rate = _rate_from_bools(candidate_passes)
+
+    metric_names = sorted(
+        {
+            metric
+            for tc_id in common_testcase_ids
+            for metric in base_by_testcase[tc_id].scores.keys() | candidate_by_testcase[tc_id].scores.keys()
+        }
+    )
+
+    metrics = {}
+    for metric in metric_names:
+        base_values = [base_by_testcase[tc_id].scores.get(metric) for tc_id in common_testcase_ids]
+        candidate_values = [candidate_by_testcase[tc_id].scores.get(metric) for tc_id in common_testcase_ids]
+        base_rate = _rate_from_bools(base_values)
+        candidate_rate = _rate_from_bools(candidate_values)
+        delta = None if base_rate is None or candidate_rate is None else candidate_rate - base_rate
+        metrics[metric] = {
+            "base_pass_rate": base_rate,
+            "candidate_pass_rate": candidate_rate,
+            "delta": delta,
+        }
+
+    changed_testcases = []
+    for tc_id in common_testcase_ids:
+        base_passed = bool(base_by_testcase[tc_id].passed)
+        candidate_passed = bool(candidate_by_testcase[tc_id].passed)
+        if base_passed != candidate_passed:
+            changed_testcases.append(
+                {
+                    "testcase_id": tc_id,
+                    "base_passed": base_passed,
+                    "candidate_passed": candidate_passed,
+                }
+            )
+
+    pass_rate_delta = None if base_pass_rate is None or candidate_pass_rate is None else candidate_pass_rate - base_pass_rate
+    return {
+        "base_run_id": str(base_run.id),
+        "candidate_run_id": str(candidate_run.id),
+        "base_total": len(base_rows),
+        "candidate_total": len(candidate_rows),
+        "common_total": len(common_testcase_ids),
+        "base_pass_rate": base_pass_rate,
+        "candidate_pass_rate": candidate_pass_rate,
+        "pass_rate_delta": pass_rate_delta,
+        "metrics": metrics,
+        "changed_testcases": changed_testcases,
+    }

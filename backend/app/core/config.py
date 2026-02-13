@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     llm_provider: str = Field("openai", validation_alias="LLM_PROVIDER")
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     anthropic_api_key: str | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
+    aws_region: str | None = Field(default=None, validation_alias="AWS_REGION")
+    aws_profile: str | None = Field(default=None, validation_alias="AWS_PROFILE")
     default_model: str = Field("gpt-4o-mini", validation_alias="DEFAULT_MODEL")
     log_level: str = Field("INFO", validation_alias="LOG_LEVEL")
     rate_limit_per_minute: int = Field(60, validation_alias="RATE_LIMIT_PER_MINUTE")
