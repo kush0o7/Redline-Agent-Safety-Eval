@@ -1,11 +1,15 @@
+import asyncio
 import uuid
 
 from app.queue import tasks
 
 
-def test_api_smoke(client, db, monkeypatch):
-    monkeypatch.setattr(tasks, "enqueue_run", lambda run_id: None)
+def _run_task(run_id: str) -> None:
+    """Execute the ARQ task synchronously in tests (no Redis needed)."""
+    asyncio.run(tasks.run_eval_task({}, run_id))
 
+
+def test_api_smoke(client, db):
     headers = {"X-Admin-Key": "test-key"}
 
     resp = client.post("/projects", json={"name": "demo"}, headers=headers)
@@ -14,7 +18,7 @@ def test_api_smoke(client, db, monkeypatch):
 
     resp = client.post(f"/projects/{project_id}/seed-testcases", headers=headers)
     assert resp.status_code == 200
-    assert resp.json()["inserted"] >= 30
+    assert resp.json()["inserted"] >= 10  # JailbreakBench + handcrafted
 
     resp = client.get(f"/projects/{project_id}/testcases", headers=headers)
     testcase_ids = [row["id"] for row in resp.json()][:3]
@@ -27,7 +31,7 @@ def test_api_smoke(client, db, monkeypatch):
     assert resp.status_code == 200
     run_id = resp.json()["run_id"]
 
-    tasks.run_eval_task(run_id)
+    _run_task(run_id)
 
     resp = client.get(f"/projects/{project_id}/runs/{run_id}", headers=headers)
     assert resp.status_code == 200
@@ -42,8 +46,7 @@ def test_api_smoke(client, db, monkeypatch):
     assert resp.status_code == 200
 
 
-def test_compare_runs_endpoint(client, db, monkeypatch):
-    monkeypatch.setattr(tasks, "enqueue_run", lambda run_id: None)
+def test_compare_runs_endpoint(client, db):
     headers = {"X-Admin-Key": "test-key"}
 
     resp = client.post("/projects", json={"name": "compare-demo"}, headers=headers)
@@ -66,7 +69,7 @@ def test_compare_runs_endpoint(client, db, monkeypatch):
         assert resp.status_code == 200
         run_id = resp.json()["run_id"]
         run_ids.append(run_id)
-        tasks.run_eval_task(run_id)
+        _run_task(run_id)
 
     compare_resp = client.get(
         f"/projects/{project_id}/runs/compare",

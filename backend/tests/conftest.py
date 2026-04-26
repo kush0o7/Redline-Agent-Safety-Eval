@@ -5,8 +5,10 @@ os.environ.setdefault("POSTGRES_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("LLM_PROVIDER", "fake")
 os.environ.setdefault("DEV_FAKE_PROVIDER", "true")
+os.environ.setdefault("DEV_FAKE_JUDGE", "true")
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
@@ -42,4 +44,7 @@ def db(db_engine):
 
 @pytest.fixture()
 def client(db):
+    fake_pool = MagicMock()
+    fake_pool.enqueue_job = AsyncMock()
+    app.state.arq_pool = fake_pool
     return TestClient(app)

@@ -57,7 +57,7 @@ async def execute_run(
         if run.mode == "baseline":
             trace_events.append({"t": "assistant", "msg": response.output_text, "role": "final", "ts": now_iso()})
 
-        score = score_testcase(
+        score = await score_testcase(
             prompt=testcase.prompt,
             expected=testcase.expected_behavior,
             output=response.output_text,

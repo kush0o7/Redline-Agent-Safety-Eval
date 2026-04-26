@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -8,7 +12,6 @@ from app.core.config import settings
 from app.core.security import verify_admin_key
 from app.db.models import Project, Run, RunResult, Testcase, Trace
 from app.db.session import get_db
-from app.queue.tasks import enqueue_run
 from app.utils.time import now_iso
 
 router = APIRouter(dependencies=[Depends(verify_admin_key)])
@@ -22,7 +25,7 @@ class RunCreate(BaseModel):
 
 
 @router.post("/projects/{project_id}/runs")
-def create_run(project_id: str, payload: RunCreate, db: Session = Depends(get_db)):
+async def create_run(project_id: str, payload: RunCreate, request: Request, db: Session = Depends(get_db)):
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -45,8 +48,86 @@ def create_run(project_id: str, payload: RunCreate, db: Session = Depends(get_db
     db.commit()
     db.refresh(run)
 
-    enqueue_run(str(run.id))
+    await request.app.state.arq_pool.enqueue_job("run_eval_task", str(run.id))
     return {"run_id": str(run.id), "status": run.status}
+
+
+@router.get("/projects/{project_id}/runs/compare")
+def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, db: Session = Depends(get_db)):
+    base_run = db.get(Run, base_run_id)
+    candidate_run = db.get(Run, candidate_run_id)
+    if not base_run or str(base_run.project_id) != project_id:
+        raise HTTPException(status_code=404, detail="Base run not found")
+    if not candidate_run or str(candidate_run.project_id) != project_id:
+        raise HTTPException(status_code=404, detail="Candidate run not found")
+
+    base_rows = db.query(RunResult).filter(RunResult.run_id == base_run.id).all()
+    candidate_rows = db.query(RunResult).filter(RunResult.run_id == candidate_run.id).all()
+
+    base_by_testcase = {str(row.testcase_id): row for row in base_rows}
+    candidate_by_testcase = {str(row.testcase_id): row for row in candidate_rows}
+    common_testcase_ids = sorted(set(base_by_testcase).intersection(candidate_by_testcase))
+    if not common_testcase_ids:
+        return {
+            "base_run_id": str(base_run.id),
+            "candidate_run_id": str(candidate_run.id),
+            "base_total": len(base_rows),
+            "candidate_total": len(candidate_rows),
+            "common_total": 0,
+            "pass_rate_delta": None,
+            "metrics": {},
+            "changed_testcases": [],
+        }
+
+    def _rate(values: list) -> float | None:
+        valid = [v for v in values if v is not None]
+        if not valid:
+            return None
+        return sum(1 for v in valid if v) / len(valid)
+
+    base_passes = [base_by_testcase[tc_id].passed for tc_id in common_testcase_ids]
+    candidate_passes = [candidate_by_testcase[tc_id].passed for tc_id in common_testcase_ids]
+    base_pass_rate = _rate(base_passes)
+    candidate_pass_rate = _rate(candidate_passes)
+
+    metric_names = sorted({
+        m
+        for tc_id in common_testcase_ids
+        for m in (base_by_testcase[tc_id].scores.keys() | candidate_by_testcase[tc_id].scores.keys())
+    })
+
+    metrics = {}
+    for metric in metric_names:
+        base_values = [base_by_testcase[tc_id].scores.get(metric) for tc_id in common_testcase_ids]
+        candidate_values = [candidate_by_testcase[tc_id].scores.get(metric) for tc_id in common_testcase_ids]
+        base_rate = _rate(base_values)
+        candidate_rate = _rate(candidate_values)
+        delta = None if base_rate is None or candidate_rate is None else candidate_rate - base_rate
+        metrics[metric] = {"base_pass_rate": base_rate, "candidate_pass_rate": candidate_rate, "delta": delta}
+
+    changed_testcases = [
+        {
+            "testcase_id": tc_id,
+            "base_passed": bool(base_by_testcase[tc_id].passed),
+            "candidate_passed": bool(candidate_by_testcase[tc_id].passed),
+        }
+        for tc_id in common_testcase_ids
+        if bool(base_by_testcase[tc_id].passed) != bool(candidate_by_testcase[tc_id].passed)
+    ]
+
+    pass_rate_delta = None if base_pass_rate is None or candidate_pass_rate is None else candidate_pass_rate - base_pass_rate
+    return {
+        "base_run_id": str(base_run.id),
+        "candidate_run_id": str(candidate_run.id),
+        "base_total": len(base_rows),
+        "candidate_total": len(candidate_rows),
+        "common_total": len(common_testcase_ids),
+        "base_pass_rate": base_pass_rate,
+        "candidate_pass_rate": candidate_pass_rate,
+        "pass_rate_delta": pass_rate_delta,
+        "metrics": metrics,
+        "changed_testcases": changed_testcases,
+    }
 
 
 @router.get("/projects/{project_id}/runs/{run_id}")
@@ -64,6 +145,41 @@ def get_run(project_id: str, run_id: str, db: Session = Depends(get_db)):
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
         "summary": run.summary,
     }
+
+
+@router.get("/projects/{project_id}/runs/{run_id}/stream", dependencies=[])
+async def stream_run(
+    project_id: str,
+    run_id: str,
+    db: Session = Depends(get_db),
+    x_admin_key: str | None = None,
+):
+    from app.core.config import settings
+    if x_admin_key != settings.admin_api_key:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    """SSE endpoint — streams run status every second until completed or failed."""
+    run = db.get(Run, run_id)
+    if not run or str(run.project_id) != project_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    async def event_generator():
+        terminal = {"completed", "failed"}
+        while True:
+            db.expire_all()
+            current = db.get(Run, run_id)
+            if not current:
+                break
+            payload = {
+                "status": current.status,
+                "summary": current.summary,
+                "ts": now_iso(),
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            if current.status in terminal:
+                break
+            await asyncio.sleep(1)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.get("/projects/{project_id}/runs/{run_id}/results")
@@ -99,90 +215,3 @@ def get_trace(project_id: str, run_id: str, testcase_id: str, db: Session = Depe
     if not trace:
         raise HTTPException(status_code=404, detail="Trace not found")
     return {"events": trace.events, "injection_detected": trace.injection_detected}
-
-
-@router.get("/projects/{project_id}/runs/compare")
-def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, db: Session = Depends(get_db)):
-    base_run = db.get(Run, base_run_id)
-    candidate_run = db.get(Run, candidate_run_id)
-    if not base_run or str(base_run.project_id) != project_id:
-        raise HTTPException(status_code=404, detail="Base run not found")
-    if not candidate_run or str(candidate_run.project_id) != project_id:
-        raise HTTPException(status_code=404, detail="Candidate run not found")
-
-    base_rows = db.query(RunResult).filter(RunResult.run_id == base_run.id).all()
-    candidate_rows = db.query(RunResult).filter(RunResult.run_id == candidate_run.id).all()
-
-    base_by_testcase = {str(row.testcase_id): row for row in base_rows}
-    candidate_by_testcase = {str(row.testcase_id): row for row in candidate_rows}
-    common_testcase_ids = sorted(set(base_by_testcase).intersection(candidate_by_testcase))
-    if not common_testcase_ids:
-        return {
-            "base_run_id": str(base_run.id),
-            "candidate_run_id": str(candidate_run.id),
-            "base_total": len(base_rows),
-            "candidate_total": len(candidate_rows),
-            "common_total": 0,
-            "pass_rate_delta": None,
-            "metrics": {},
-            "changed_testcases": [],
-        }
-
-    def _rate_from_bools(values: list[bool | None]) -> float | None:
-        valid = [v for v in values if v is not None]
-        if not valid:
-            return None
-        return sum(1 for v in valid if v) / len(valid)
-
-    base_passes = [base_by_testcase[tc_id].passed for tc_id in common_testcase_ids]
-    candidate_passes = [candidate_by_testcase[tc_id].passed for tc_id in common_testcase_ids]
-    base_pass_rate = _rate_from_bools(base_passes)
-    candidate_pass_rate = _rate_from_bools(candidate_passes)
-
-    metric_names = sorted(
-        {
-            metric
-            for tc_id in common_testcase_ids
-            for metric in base_by_testcase[tc_id].scores.keys() | candidate_by_testcase[tc_id].scores.keys()
-        }
-    )
-
-    metrics = {}
-    for metric in metric_names:
-        base_values = [base_by_testcase[tc_id].scores.get(metric) for tc_id in common_testcase_ids]
-        candidate_values = [candidate_by_testcase[tc_id].scores.get(metric) for tc_id in common_testcase_ids]
-        base_rate = _rate_from_bools(base_values)
-        candidate_rate = _rate_from_bools(candidate_values)
-        delta = None if base_rate is None or candidate_rate is None else candidate_rate - base_rate
-        metrics[metric] = {
-            "base_pass_rate": base_rate,
-            "candidate_pass_rate": candidate_rate,
-            "delta": delta,
-        }
-
-    changed_testcases = []
-    for tc_id in common_testcase_ids:
-        base_passed = bool(base_by_testcase[tc_id].passed)
-        candidate_passed = bool(candidate_by_testcase[tc_id].passed)
-        if base_passed != candidate_passed:
-            changed_testcases.append(
-                {
-                    "testcase_id": tc_id,
-                    "base_passed": base_passed,
-                    "candidate_passed": candidate_passed,
-                }
-            )
-
-    pass_rate_delta = None if base_pass_rate is None or candidate_pass_rate is None else candidate_pass_rate - base_pass_rate
-    return {
-        "base_run_id": str(base_run.id),
-        "candidate_run_id": str(candidate_run.id),
-        "base_total": len(base_rows),
-        "candidate_total": len(candidate_rows),
-        "common_total": len(common_testcase_ids),
-        "base_pass_rate": base_pass_rate,
-        "candidate_pass_rate": candidate_pass_rate,
-        "pass_rate_delta": pass_rate_delta,
-        "metrics": metrics,
-        "changed_testcases": changed_testcases,
-    }

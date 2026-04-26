@@ -35,7 +35,7 @@ services:
     depends_on:
       - postgres
       - redis
-    command: ["python", "-m", "app.queue.worker"]
+    command: ["python", "-m", "arq", "app.queue.worker.WorkerSettings"]
 
 volumes:
   pgdata:

@@ -24,30 +24,32 @@ function summarizeResults(summary, results) {
   const lines = [];
   lines.push(`Overall: ${Math.round((summary.pass_rate || 0) * 100)}% passed (${summary.passed}/${summary.total}).`);
   const metrics = summary.metrics || {};
-  if (metrics.policy_compliance) {
-    const pr = Math.round(metrics.policy_compliance.pass_rate * 100);
-    lines.push(`Policy compliance: ${pr}%. Low scores mean it didn't refuse unsafe requests.`);
-  }
-  if (metrics.hallucination) {
-    const hr = Math.round(metrics.hallucination.pass_rate * 100);
-    lines.push(`Hallucination control: ${hr}%. Low scores mean it made up details or didn't say \"I don't know.\"`);
-  }
-  if (metrics.overconfidence) {
-    const orr = Math.round(metrics.overconfidence.pass_rate * 100);
-    lines.push(`Overconfidence: ${orr}%. Low scores mean it was too confident when uncertain.`);
-  }
-  if (metrics.refusal_correctness) {
-    const rr = Math.round(metrics.refusal_correctness.pass_rate * 100);
-    lines.push(`Refusal correctness: ${rr}%. Low scores mean it refused when it shouldn't or didn't refuse when it should.`);
+
+  const metricLabels = {
+    policy_compliance:  "Policy compliance — did it refuse when it should (and not refuse when it shouldn't)?",
+    hallucination:      "Hallucination — did it avoid making up unverifiable facts?",
+    must_include:       "Must-include — were required phrases present in the response?",
+    must_not_include:   "Must-not-include — were forbidden phrases absent?",
+    strongreject:       "StrongREJECT — for jailbreak cases, did it avoid giving specific + convincing harmful content?",
+  };
+
+  for (const [key, label] of Object.entries(metricLabels)) {
+    if (metrics[key]) {
+      const pct = Math.round(metrics[key].pass_rate * 100);
+      lines.push(`${pct}% — ${label}`);
+    }
   }
 
   if (Array.isArray(results) && results.length) {
     const failed = results.filter((r) => !r.passed);
-    lines.push(`Failures: ${failed.length}/${results.length}.`);
-    const top = failed.slice(0, 3).map((r) => r.testcase_id);
-    if (top.length) {
-      lines.push(`Example failing testcases: ${top.join(", ")}.`);
-    }
+    lines.push(`\nFailures: ${failed.length}/${results.length}.`);
+    failed.slice(0, 3).forEach((r) => {
+      const bad = Object.entries(r.scores || {})
+        .filter(([, v]) => v === false)
+        .map(([k]) => k)
+        .join(", ");
+      lines.push(`  • ${r.testcase_id} — failed: ${bad || "unknown"}`);
+    });
   }
   return lines.join("\n");
 }
@@ -118,14 +120,25 @@ document.getElementById("runDemo").addEventListener("click", async () => {
     });
     document.getElementById("runId").value = run.run_id;
 
-    let summary = null;
-    for (let i = 0; i < 20; i++) {
-      await sleep(1000);
-      summary = await apiFetch(`/projects/${project.id}/runs/${run.run_id}`);
-      if (summary.status === "completed" || summary.status === "failed") {
-        break;
-      }
-    }
+    // Stream live status via SSE until run completes
+    output("Run queued — streaming status...");
+    const adminKey = getAdminKey();
+    await new Promise((resolve) => {
+      const url = `/projects/${project.id}/runs/${run.run_id}/stream`;
+      const es = new EventSource(url + `?x_admin_key=${encodeURIComponent(adminKey)}`);
+      es.onmessage = (e) => {
+        const payload = JSON.parse(e.data);
+        output(`Status: ${payload.status}${payload.summary ? " — " + JSON.stringify(payload.summary) : ""}`);
+        if (payload.status === "completed" || payload.status === "failed") {
+          es.close();
+          resolve();
+        }
+      };
+      es.onerror = () => { es.close(); resolve(); };
+      // fallback timeout
+      setTimeout(() => { es.close(); resolve(); }, 120000);
+    });
+    const summary = await apiFetch(`/projects/${project.id}/runs/${run.run_id}`);
     const results = await apiFetch(`/projects/${project.id}/runs/${run.run_id}/results`);
     output({ project, run: summary, results });
   } catch (err) {

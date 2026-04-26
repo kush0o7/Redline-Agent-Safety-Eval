@@ -1,0 +1,38 @@
+app = "redline-eval"          # change this if you pick a different name in step 4
+primary_region = "iad"
+
+[build]
+  dockerfile = "backend/Dockerfile"
+
+[env]
+  PORT = "8000"
+  # All secrets go via: fly secrets set KEY=value  (never commit real keys here)
+
+[processes]
+  app    = "sh -c 'alembic -c app/db/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000'"
+  worker = "python -m arq app.queue.worker.WorkerSettings"
+
+[http_service]
+  internal_port     = 8000
+  force_https       = true
+  auto_stop_machines  = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]           # only the API process handles HTTP
+
+  [http_service.concurrency]
+    type       = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+[[vm]]
+  memory   = "256mb"
+  cpu_kind = "shared"
+  cpus     = 1
+  processes = ["app"]
+
+[[vm]]
+  memory   = "256mb"
+  cpu_kind = "shared"
+  cpus     = 1
+  processes = ["worker"]

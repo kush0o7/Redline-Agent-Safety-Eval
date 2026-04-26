@@ -19,11 +19,12 @@ class BaseProvider(abc.ABC):
 
 
 class OpenAIProvider(BaseProvider):
-    def __init__(self) -> None:
-        if not settings.openai_api_key:
+    def __init__(self, base_url: str | None = None, api_key: str | None = None) -> None:
+        resolved_key = api_key or settings.openai_api_key
+        if not resolved_key:
             raise ValueError("OPENAI_API_KEY must be set for openai provider")
-        self.api_key = settings.openai_api_key
-        self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        self.api_key = resolved_key
+        self.base_url = base_url or settings.openai_base_url or "https://api.openai.com/v1"
 
     async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
         payload = {
@@ -152,4 +153,9 @@ def get_provider() -> BaseProvider:
         return AnthropicProvider()
     if settings.llm_provider.lower() == "bedrock":
         return BedrockProvider()
+    if settings.llm_provider.lower() == "ollama":
+        return OpenAIProvider(
+            base_url=f"{settings.ollama_base_url}/v1",
+            api_key="ollama",
+        )
     raise ValueError(f"Unknown LLM_PROVIDER: {settings.llm_provider}")

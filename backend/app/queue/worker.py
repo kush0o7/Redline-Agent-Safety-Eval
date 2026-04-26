@@ -1,15 +1,11 @@
-from redis import Redis
-from rq import Worker, Queue
+from arq.connections import RedisSettings
 
 from app.core.config import settings
+from app.queue.tasks import run_eval_task
 
 
-def run_worker() -> None:
-    redis_conn = Redis.from_url(settings.redis_url)
-    queue = Queue("runs", connection=redis_conn)
-    worker = Worker([queue], connection=redis_conn)
-    worker.work()
-
-
-if __name__ == "__main__":
-    run_worker()
+class WorkerSettings:
+    functions = [run_eval_task]
+    redis_settings = RedisSettings.from_dsn(settings.redis_url)
+    max_jobs = 10
+    job_timeout = 600  # 10 minutes max per eval run
