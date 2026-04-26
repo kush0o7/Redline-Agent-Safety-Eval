@@ -43,10 +43,28 @@ Every eval run gets a tier based on pass rate:
 | 🟡 Developing | 60–74% | yellow |
 | 🔴 At Risk | < 60% | red |
 
-Add your tier to your README:
+Add your tier to your README (requires a publicly reachable Redline instance — shields.io can't reach localhost):
 ```markdown
-[![Safety Score](https://img.shields.io/endpoint?url=http://your-redline-host/projects/{project_id}/badge)](https://github.com/kush0o7/Redline-Agent-Safety-Eval)
+[![Safety Score](https://img.shields.io/endpoint?url=https://your-redline-host/projects/{project_id}/badge)](https://github.com/kush0o7/Redline-Agent-Safety-Eval)
 ```
+
+---
+
+## Quickstart (5 minutes)
+
+**Requirements:** Docker + Docker Compose, and one LLM API key (OpenAI, Anthropic, Bedrock, or Ollama locally).
+
+```bash
+git clone https://github.com/kush0o7/Redline-Agent-Safety-Eval
+cd Redline-Agent-Safety-Eval
+
+cp .env.example .env
+# Edit .env: set ADMIN_API_KEY, your LLM provider + key
+
+docker compose up --build
+```
+
+Open **http://localhost:8001/ui/** → click **Run Demo** → watch live results stream in.
 
 ---
 
@@ -82,24 +100,6 @@ No curl, no switching context. Full formatted safety report inline.
 
 ---
 
-## Quickstart (5 minutes)
-
-**Requirements:** Docker + Docker Compose, and one LLM API key (OpenAI, Anthropic, Bedrock, or Ollama locally).
-
-```bash
-git clone https://github.com/kush0o7/Redline-Agent-Safety-Eval
-cd Redline-Agent-Safety-Eval
-
-cp .env.example .env
-# Edit .env: set ADMIN_API_KEY, your LLM provider + key
-
-docker compose up --build
-```
-
-Open **http://localhost:8001/ui/** → click **Run Demo** → watch live results stream in.
-
----
-
 ## One-call eval (`/quick-eval`)
 
 Instead of five API calls, do everything in one:
@@ -129,6 +129,8 @@ OPENAI_BASE_URL=https://your-agent.example.com/v1
 OPENAI_API_KEY=your-key-or-any-string
 DEFAULT_MODEL=your-model-name
 ```
+
+Then restart: `docker compose down && docker compose up --build`
 
 Works with any OpenAI-compatible server: [Ollama](https://ollama.com/), [Together AI](https://www.together.ai/), [Groq](https://groq.com/), [LiteLLM proxy](https://github.com/BerriAI/litellm), [vLLM](https://github.com/vllm-project/vllm), and more.
 
@@ -175,14 +177,14 @@ curl "http://localhost:8001/projects/{id}/runs/compare?base_run_id={a}&candidate
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/projects` | Create a project |
-| `POST` | `/projects/{id}/seed-testcases` | Load JailbreakBench + handcrafted cases |
-| `GET` | `/projects/{id}/testcases` | List test cases |
-| `POST` | `/projects/{id}/runs` | Start an eval run (async, queued) |
-| `GET` | `/projects/{id}/runs/{run_id}` | Run status + summary |
-| `GET` | `/projects/{id}/runs/{run_id}/stream` | **SSE** — live status stream |
-| `GET` | `/projects/{id}/runs/{run_id}/results` | Per-testcase results |
-| `GET` | `/projects/{id}/runs/{run_id}/traces/{tc_id}` | Full trace events |
-| `GET` | `/projects/{id}/runs/compare` | Diff two runs |
+| `POST` | `/projects/{project_id}/seed-testcases` | Load JailbreakBench + handcrafted cases |
+| `GET` | `/projects/{project_id}/testcases` | List test cases |
+| `POST` | `/projects/{project_id}/runs` | Start an eval run (async, queued) |
+| `GET` | `/projects/{project_id}/runs/{run_id}` | Run status + summary |
+| `GET` | `/projects/{project_id}/runs/{run_id}/stream` | **SSE** — live status stream |
+| `GET` | `/projects/{project_id}/runs/{run_id}/results` | Per-testcase results |
+| `GET` | `/projects/{project_id}/runs/{run_id}/traces/{tc_id}` | Full trace events |
+| `GET` | `/projects/{project_id}/runs/compare` | Diff two runs |
 
 All endpoints require `X-Admin-Key: <your key>`.
 
@@ -234,7 +236,7 @@ Postgres   Redis + ARQ worker
 - **Async job queue** — ARQ workers, `max_jobs=10`, `job_timeout=600s`
 - **SSE streaming** — live run status pushed to the browser
 - **LLM-as-judge** — structured scoring via `instructor` + `litellm`
-- **JailbreakBench** — 2 behaviors per harm category (~22 real adversarial prompts)
+- **57 test cases** — JailbreakBench adversarial prompts + XSTest over-refusal cases + handcrafted persona attacks and Crescendo-style escalation
 
 ---
 
@@ -244,7 +246,7 @@ Postgres   Redis + ARQ worker
 cd backend
 pip install -e ".[dev]"
 pytest tests/ -v
-# → 17/17 passing (no Docker, no API calls needed)
+# → 28/28 passing (no Docker, no API calls needed)
 ```
 
 ---
