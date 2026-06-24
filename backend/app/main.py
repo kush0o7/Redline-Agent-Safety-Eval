@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from urllib.parse import urlparse
 from arq.connections import create_pool, RedisSettings
 
 from app.core.config import settings
@@ -20,9 +21,19 @@ from app.api.routes_public import router as public_router
 configure_logging(settings.log_level)
 
 
+def _redis_settings() -> RedisSettings:
+    parsed = urlparse(settings.redis_url)
+    return RedisSettings(
+        host=parsed.hostname,
+        port=parsed.port or 6379,
+        password=parsed.password,
+        ssl=parsed.scheme == "rediss",
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.arq_pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    app.state.arq_pool = await create_pool(_redis_settings())
     yield
     await app.state.arq_pool.close()
 
