@@ -159,10 +159,15 @@ async def stream_run(
     project_id: str,
     run_id: str,
     db: Session = Depends(get_db),
+    token: str | None = None,
     x_admin_key: str | None = None,
 ):
     from app.core.config import settings
-    if x_admin_key != settings.admin_api_key:
+    run_check = db.get(Run, run_id)
+    # Accept either the per-run stream token (public, single-use-safe) or admin key
+    valid_token = run_check and run_check.stream_token and token == run_check.stream_token
+    valid_admin = x_admin_key == settings.admin_api_key
+    if not valid_token and not valid_admin:
         raise HTTPException(status_code=401, detail="Unauthorized")
     """SSE endpoint — streams run status every second until completed or failed."""
     run = db.get(Run, run_id)

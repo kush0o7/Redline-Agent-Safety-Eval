@@ -53,6 +53,9 @@
     </main>
 
     <script>
+      function esc(s) {
+        return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      }
       async function loadLeaderboard() {
         const resp = await fetch("/leaderboard");
         if (!resp.ok) { document.getElementById("lbBody").innerHTML = '<tr><td colspan="6" class="empty">Failed to load.</td></tr>'; return; }
@@ -63,12 +66,12 @@
         }
         document.getElementById("lbBody").innerHTML = entries.map(e => `
           <tr>
-            <td class="rank">${e.rank}</td>
-            <td class="model-name">${e.model}</td>
-            <td class="pct">${e.pass_pct}%</td>
-            <td><span class="tier-chip">${e.tier || "—"}</span></td>
-            <td class="date">${e.testcase_count ?? "—"}</td>
-            <td class="date">${e.date || "—"}</td>
+            <td class="rank">${esc(e.rank)}</td>
+            <td class="model-name">${esc(e.model)}<div style="font-size:12px;color:var(--muted)">by ${esc(e.submitter||"anonymous")}</div></td>
+            <td class="pct">${esc(e.pass_pct)}%</td>
+            <td><span class="tier-chip">${esc(e.tier || "—")}</span></td>
+            <td class="date">${esc(e.testcase_count ?? "—")}</td>
+            <td class="date">${esc(e.date || "—")}</td>
           </tr>
         `).join("");
       }

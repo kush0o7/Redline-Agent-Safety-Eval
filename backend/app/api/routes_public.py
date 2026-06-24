@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 import secrets
 from datetime import datetime, timezone, timedelta
 
-from app.core.security import verify_admin_key
+from app.core.security import validate_agent_url, verify_admin_key
 from app.db.models import AnalyticsEvent, InviteToken, Project, Run, RunResult, Testcase
 from app.db.session import get_db
 from app.evals.testcases import load_default_testcases
@@ -82,12 +82,12 @@ def _verify_eval_access(
 
 class QuickEvalCreate(BaseModel):
     name: str | None = Field(default=None, description="Optional project name (auto-generated if omitted)")
-    mode: str = Field(default="baseline", description="baseline or debate")
-    model: str | None = Field(default=None, description="Override DEFAULT_MODEL")
+    mode: str = Field(default="baseline", pattern="^(baseline|debate)$", description="baseline or debate")
+    model: str | None = Field(default=None, max_length=120, description="Override DEFAULT_MODEL")
     testcase_count: int = Field(default=10, ge=1, le=50, description="Number of test cases to run")
     seed: int = Field(default=7)
-    agent_endpoint_url: str | None = Field(default=None, description="OpenAI-compatible chat endpoint to test (e.g. https://your-api.com/v1)")
-    agent_endpoint_key: str | None = Field(default=None, description="API key for the agent endpoint")
+    agent_endpoint_url: str | None = Field(default=None, max_length=512, description="OpenAI-compatible chat endpoint to test")
+    agent_endpoint_key: str | None = Field(default=None, max_length=256, description="API key for the agent endpoint")
     submitter: str | None = Field(default=None, max_length=60, description="Display name for the leaderboard")
 
 
@@ -98,6 +98,15 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
     Returns run_id + project_id immediately. Poll GET /quick-eval/{run_id} for results.
     """
     import uuid as _uuid
+
+    # SSRF guard — validate agent endpoint before doing anything
+    if payload.agent_endpoint_url:
+        validate_agent_url(payload.agent_endpoint_url)
+
+    # Queue depth guard — prevent cost abuse via job flooding
+    queue_info = await request.app.state.arq_pool.info()
+    if queue_info and queue_info.get("pending", 0) > 20:
+        raise HTTPException(status_code=503, detail="Server is busy — too many evals queued. Try again shortly.")
 
     name = payload.name or f"quick-eval-{_uuid.uuid4().hex[:8]}"
     project = Project(name=name)
@@ -117,6 +126,9 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
     )
     testcase_ids = [str(tc.id) for tc in testcases]
 
+    # Generate a per-run stream token so the admin key never appears in any URL
+    stream_token = secrets.token_urlsafe(24)
+
     run = Run(
         project_id=project.id,
         mode=payload.mode,
@@ -126,6 +138,7 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         summary={"testcase_ids": testcase_ids},
         agent_endpoint_url=payload.agent_endpoint_url,
         agent_endpoint_key=payload.agent_endpoint_key,
+        stream_token=stream_token,
     )
     db.add(run)
     db.commit()
@@ -141,7 +154,7 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         "status": "queued",
         "testcase_count": len(testcase_ids),
         "results_url": f"/quick-eval/{run_id}",
-        "stream_url": f"/projects/{project_id}/runs/{run_id}/stream?x_admin_key={settings.admin_api_key}",
+        "stream_url": f"/projects/{project_id}/runs/{run_id}/stream?token={stream_token}",
     }
 
 
@@ -229,6 +242,34 @@ def leaderboard(db: Session = Depends(get_db)):
         row["rank"] = i + 1
     avg = round(sum(r["pass_pct"] for r in ranked) / len(ranked)) if ranked else 0
     return {"entries": ranked, "total_models": len(ranked), "total_runs": len(events), "avg_pass_pct": avg}
+
+
+@router.get("/admin/runs", dependencies=[Depends(verify_admin_key)])
+def admin_runs(limit: int = 50, db: Session = Depends(get_db)):
+    """Recent runs across all projects — admin only."""
+    runs = (
+        db.query(Run)
+        .order_by(Run.started_at.desc().nullslast())
+        .limit(min(limit, 200))
+        .all()
+    )
+    return [
+        {
+            "run_id": str(r.id),
+            "project_id": str(r.project_id),
+            "status": r.status,
+            "model": r.llm_model,
+            "mode": r.mode,
+            "testcase_count": len(r.summary.get("testcase_ids", [])) if r.summary else 0,
+            "pass_rate": r.summary.get("pass_rate") if r.summary else None,
+            "tier": r.summary.get("tier") if r.summary else None,
+            "error": r.summary.get("error") if r.summary and r.status == "failed" else None,
+            "has_agent_endpoint": bool(r.agent_endpoint_url),
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+        }
+        for r in runs
+    ]
 
 
 @router.get("/admin/stats", dependencies=[Depends(verify_admin_key)])

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Redline — Admin</title>
+    <link rel="stylesheet" href="/ui/styles.css" />
+    <style>
+      .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; margin-bottom: 28px; }
+      .stat-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+      .stat-num { font-size: 32px; font-weight: 800; color: var(--accent); }
+      .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .05em; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th { text-align: left; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; padding: 0 10px 10px; }
+      td { padding: 10px; border-top: 1px solid var(--border); }
+      tr:hover td { background: rgba(255,255,255,.02); }
+      .status-completed { color: #3ddc97; }
+      .status-failed { color: #ef4444; }
+      .status-running { color: #eab308; }
+      .status-queued { color: var(--muted); }
+      .error-text { color: #ef4444; font-size: 12px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .model-col { font-weight: 600; }
+      .agent-badge { font-size: 10px; background: rgba(61,220,151,.15); color: var(--accent); border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
+      .key-row { display: flex; gap: 10px; margin-bottom: 24px; }
+      .key-row input { flex: 1; font-family: monospace; }
+      .login-wall { max-width: 400px; margin: 80px auto; text-align: center; }
+      .chart-bar-wrap { background: var(--border); border-radius: 3px; height: 8px; margin-top: 3px; }
+      .chart-bar { background: var(--accent); border-radius: 3px; height: 8px; }
+      .daily-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 13px; }
+      .daily-date { width: 90px; color: var(--muted); }
+      .daily-num { width: 24px; text-align: right; font-weight: 700; }
+      .back-link { display: inline-block; margin-bottom: 24px; color: var(--accent); text-decoration: none; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <a href="/ui/" class="back-link">← Back to app</a>
+      <header>
+        <h1>Redline <span class="header-tag">Admin</span></h1>
+        <p class="subtitle">Founder view — usage metrics, all runs, failed evals.</p>
+      </header>
+
+      <!-- Auth -->
+      <div id="loginWall">
+        <div class="key-row">
+          <input id="adminKeyInput" type="password" placeholder="Admin key" />
+          <button class="btn-primary" onclick="login()">Login</button>
+        </div>
+        <p id="loginError" style="color:#ef4444;font-size:13px;display:none;">Wrong key.</p>
+      </div>
+
+      <div id="dashboard" style="display:none;">
+        <!-- Stats -->
+        <div class="stat-grid" id="statGrid"></div>
+
+        <!-- Daily chart -->
+        <section class="card" id="dailyCard" style="display:none;">
+          <h2>Daily runs</h2>
+          <div id="dailyChart"></div>
+        </section>
+
+        <!-- Model breakdown -->
+        <section class="card" id="modelsCard" style="display:none;">
+          <h2>Models tested</h2>
+          <div id="modelsList"></div>
+        </section>
+
+        <!-- Recent runs -->
+        <section class="card">
+          <h2>Recent runs</h2>
+          <table>
+            <thead><tr>
+              <th>Status</th><th>Model</th><th>Score</th><th>Cases</th><th>Mode</th><th>Started</th><th>Error</th>
+            </tr></thead>
+            <tbody id="runsBody"><tr><td colspan="7" style="color:var(--muted);padding:20px">Loading…</td></tr></tbody>
+          </table>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      function esc(s) {
+        return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      }
+
+      let _key = localStorage.getItem("redline_admin_key") || "";
+      if (_key) { document.getElementById("adminKeyInput").value = _key; loadDashboard(); }
+
+      function login() {
+        _key = document.getElementById("adminKeyInput").value.trim();
+        if (!_key) return;
+        localStorage.setItem("redline_admin_key", _key);
+        loadDashboard();
+      }
+
+      async function api(path) {
+        const r = await fetch(path, { headers: { "X-Admin-Key": _key } });
+        if (r.status === 401) {
+          document.getElementById("loginError").style.display = "block";
+          return null;
+        }
+        return r.json();
+      }
+
+      async function loadDashboard() {
+        const [stats, runs] = await Promise.all([api("/admin/stats"), api("/admin/runs")]);
+        if (!stats || !runs) return;
+
+        document.getElementById("loginWall").style.display = "none";
+        document.getElementById("dashboard").style.display = "block";
+
+        // Stats grid
+        const tierEntries = Object.entries(stats.tiers || {});
+        document.getElementById("statGrid").innerHTML = `
+          <div class="stat-box"><div class="stat-num">${stats.total_runs}</div><div class="stat-label">Total runs</div></div>
+          <div class="stat-box"><div class="stat-num">${stats.unique_models}</div><div class="stat-label">Models tested</div></div>
+          <div class="stat-box"><div class="stat-num">${runs.filter(r=>r.status==="failed").length}</div><div class="stat-label">Failed runs</div></div>
+          <div class="stat-box"><div class="stat-num">${runs.filter(r=>r.status==="running"||r.status==="queued").length}</div><div class="stat-label">In queue</div></div>
+          ${tierEntries.map(([t,n])=>`<div class="stat-box"><div class="stat-num">${n}</div><div class="stat-label">${esc(t)}</div></div>`).join("")}
+        `;
+
+        // Daily chart
+        const daily = stats.daily_runs || {};
+        const days = Object.keys(daily).sort().slice(-14);
+        if (days.length) {
+          const max = Math.max(...days.map(d => daily[d]));
+          document.getElementById("dailyCard").style.display = "block";
+          document.getElementById("dailyChart").innerHTML = days.map(d => `
+            <div class="daily-row">
+              <span class="daily-date">${esc(d)}</span>
+              <span class="daily-num">${daily[d]}</span>
+              <div style="flex:1"><div class="chart-bar-wrap"><div class="chart-bar" style="width:${Math.round(daily[d]/max*100)}%"></div></div></div>
+            </div>
+          `).join("");
+        }
+
+        // Models
+        const models = stats.models || {};
+        const modelEntries = Object.entries(models).sort((a,b)=>b[1]-a[1]);
+        if (modelEntries.length) {
+          document.getElementById("modelsCard").style.display = "block";
+          const maxM = modelEntries[0][1];
+          document.getElementById("modelsList").innerHTML = modelEntries.map(([m,n]) => `
+            <div class="daily-row">
+              <span style="flex:1;font-weight:600">${esc(m)}</span>
+              <span class="daily-num">${n}</span>
+              <div style="width:160px"><div class="chart-bar-wrap"><div class="chart-bar" style="width:${Math.round(n/maxM*100)}%"></div></div></div>
+            </div>
+          `).join("");
+        }
+
+        // Runs table
+        document.getElementById("runsBody").innerHTML = runs.map(r => {
+          const pct = r.pass_rate != null ? Math.round(r.pass_rate * 100) + "%" : "—";
+          const started = r.started_at ? new Date(r.started_at).toLocaleString() : "—";
+          return `<tr>
+            <td class="status-${esc(r.status)}">${esc(r.status)}</td>
+            <td class="model-col">${esc(r.model)}${r.has_agent_endpoint ? '<span class="agent-badge">custom</span>' : ""}</td>
+            <td>${esc(pct)}</td>
+            <td>${esc(r.testcase_count)}</td>
+            <td>${esc(r.mode)}</td>
+            <td>${esc(started)}</td>
+            <td>${r.error ? `<span class="error-text" title="${esc(r.error)}">${esc(r.error.slice(0,60))}…</span>` : ""}</td>
+          </tr>`;
+        }).join("");
+      }
+
+      document.getElementById("adminKeyInput").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+    </script>
+  </body>
+</html>

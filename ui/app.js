@@ -1,3 +1,14 @@
+// ── HTML escaping (XSS prevention) ───────────────────────────────────────────
+
+function esc(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ── Admin toggle ──────────────────────────────────────────────────────────────
 
 function toggleAdmin() {
@@ -81,15 +92,15 @@ async function loadLeaderboard() {
     tbody.innerHTML = entries.map(e => {
       const isYou = myName && e.submitter === myName;
       return `<tr class="${isYou ? "lb-you" : ""}">
-        <td class="lb-rank">${e.rank}</td>
+        <td class="lb-rank">${esc(e.rank)}</td>
         <td>
-          <div class="lb-model">${e.model}${isYou ? " 👈 you" : ""}</div>
-          <div class="lb-sub">by ${e.submitter || "anonymous"}</div>
+          <div class="lb-model">${esc(e.model)}${isYou ? " 👈 you" : ""}</div>
+          <div class="lb-sub">by ${esc(e.submitter || "anonymous")}</div>
         </td>
-        <td class="lb-pct">${e.pass_pct}%</td>
-        <td><span class="lb-tier">${e.tier || "—"}</span></td>
-        <td class="lb-date">${e.testcase_count ?? "—"}</td>
-        <td class="lb-date">${e.date || "—"}</td>
+        <td class="lb-pct">${esc(e.pass_pct)}%</td>
+        <td><span class="lb-tier">${esc(e.tier || "—")}</span></td>
+        <td class="lb-date">${esc(e.testcase_count ?? "—")}</td>
+        <td class="lb-date">${esc(e.date || "—")}</td>
       </tr>`;
     }).join("");
   } catch (e) {
@@ -176,8 +187,8 @@ function renderResults(data) {
     document.getElementById("failureCount").textContent = String(failures.length);
     const list = document.getElementById("failuresList");
     list.innerHTML = failures.slice(0, 8).map(r => {
-      const bad = Object.entries(r.scores || {}).filter(([, v]) => v === false).map(([k]) => k).join(", ");
-      return `<div class="failure-item"><div class="failure-id">${r.testcase_id}</div><div class="failure-metrics">Failed: ${bad || "unknown"}</div></div>`;
+      const bad = Object.entries(r.scores || {}).filter(([, v]) => v === false).map(([k]) => esc(k)).join(", ");
+      return `<div class="failure-item"><div class="failure-id">${esc(r.testcase_id)}</div><div class="failure-metrics">Failed: ${bad || "unknown"}</div></div>`;
     }).join("");
     if (failures.length > 8) list.innerHTML += `<p class="hint" style="margin-top:8px">…and ${failures.length - 8} more</p>`;
   }

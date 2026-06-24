@@ -48,6 +48,7 @@ class Run(Base):
     summary: Mapped[dict | None] = mapped_column(JSONBCompat())
     agent_endpoint_url: Mapped[str | None] = mapped_column(Text)
     agent_endpoint_key: Mapped[str | None] = mapped_column(Text)
+    stream_token: Mapped[str | None] = mapped_column(Text)
 
     project = relationship("Project", back_populates="runs")
     results = relationship("RunResult", back_populates="run")
