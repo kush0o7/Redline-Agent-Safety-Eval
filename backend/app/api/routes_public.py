@@ -1,13 +1,16 @@
 """Public endpoints (no auth) and convenience endpoints (auth required)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+import secrets
+from datetime import datetime, timezone, timedelta
+
 from app.core.security import verify_admin_key
-from app.db.models import AnalyticsEvent, Project, Run, RunResult, Testcase
+from app.db.models import AnalyticsEvent, InviteToken, Project, Run, RunResult, Testcase
 from app.db.session import get_db
 from app.evals.testcases import load_default_testcases
 from app.core.config import settings
@@ -59,6 +62,24 @@ def project_badge(project_id: str, db: Session = Depends(get_db)):
 
 # ── Quick eval (auth required, all-in-one convenience endpoint) ────────────────
 
+def _verify_eval_access(
+    x_admin_key: str | None = Header(default=None),
+    x_invite_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Accept either the admin key OR a valid invite token."""
+    if x_admin_key == settings.admin_api_key:
+        return
+    if x_invite_token:
+        row = db.get(InviteToken, x_invite_token)
+        now = datetime.now(timezone.utc)
+        if row and row.used_count < row.max_uses and (row.expires_at is None or row.expires_at > now):
+            row.used_count += 1
+            db.commit()
+            return
+    raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 class QuickEvalCreate(BaseModel):
     name: str | None = Field(default=None, description="Optional project name (auto-generated if omitted)")
     mode: str = Field(default="baseline", description="baseline or debate")
@@ -69,7 +90,7 @@ class QuickEvalCreate(BaseModel):
     agent_endpoint_key: str | None = Field(default=None, description="API key for the agent endpoint")
 
 
-@router.post("/quick-eval", dependencies=[Depends(verify_admin_key)])
+@router.post("/quick-eval", dependencies=[Depends(_verify_eval_access)])
 async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = Depends(get_db)):
     """Create a project, seed test cases, and start a run in one call.
 
@@ -157,6 +178,55 @@ def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
 
 
 # ── Admin stats (auth required) ───────────────────────────────────────────────
+
+@router.post("/admin/invite", dependencies=[Depends(verify_admin_key)])
+def create_invite(
+    label: str | None = None,
+    max_uses: int = 10,
+    expires_days: int | None = 30,
+    db: Session = Depends(get_db),
+):
+    """Generate an invite link you can share with friends. They can run evals without knowing the admin key."""
+    token = secrets.token_urlsafe(24)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days) if expires_days else None
+    row = InviteToken(token=token, label=label, max_uses=max_uses, expires_at=expires_at)
+    db.add(row)
+    db.commit()
+    return {
+        "token": token,
+        "label": label,
+        "max_uses": max_uses,
+        "expires_at": expires_at.isoformat() if expires_at else None,
+        "invite_url": f"{settings.public_url}/ui/?invite={token}",
+    }
+
+
+@router.get("/leaderboard")
+def leaderboard(db: Session = Depends(get_db)):
+    """Public leaderboard — best score per model across all completed runs."""
+    events = (
+        db.query(AnalyticsEvent)
+        .filter(AnalyticsEvent.event == "run_completed", AnalyticsEvent.pass_rate.isnot(None))
+        .order_by(AnalyticsEvent.pass_rate.desc())
+        .all()
+    )
+    seen: dict[str, dict] = {}
+    for e in events:
+        model = e.model or "unknown"
+        if model not in seen or (e.pass_rate or 0) > seen[model]["pass_rate"]:
+            seen[model] = {
+                "model": model,
+                "pass_rate": round(e.pass_rate or 0, 3),
+                "pass_pct": round((e.pass_rate or 0) * 100),
+                "tier": e.tier,
+                "testcase_count": e.testcase_count,
+                "date": e.created_at.strftime("%Y-%m-%d") if e.created_at else None,
+            }
+    ranked = sorted(seen.values(), key=lambda x: -x["pass_rate"])
+    for i, row in enumerate(ranked):
+        row["rank"] = i + 1
+    return {"entries": ranked, "total_models": len(ranked)}
+
 
 @router.get("/admin/stats", dependencies=[Depends(verify_admin_key)])
 def admin_stats(db: Session = Depends(get_db)):

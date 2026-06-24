@@ -1,7 +1,15 @@
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
+// Check for invite token in URL (?invite=TOKEN)
+const _urlParams = new URLSearchParams(window.location.search);
+const _inviteToken = _urlParams.get("invite");
+
 function getAdminKey() {
   return document.getElementById("adminKey").value.trim();
+}
+
+function getInviteToken() {
+  return _inviteToken || localStorage.getItem("redline_invite_token") || null;
 }
 
 function setAuthStatus(ok) {
@@ -11,6 +19,15 @@ function setAuthStatus(ok) {
 }
 
 (function initAuth() {
+  // If invite token in URL, store it and hide the admin key section
+  if (_inviteToken) {
+    localStorage.setItem("redline_invite_token", _inviteToken);
+    document.querySelector("section.card").style.display = "none";
+    setAuthStatus(true);
+    // Clean the token from the URL bar
+    window.history.replaceState({}, "", "/ui/");
+    return;
+  }
   const saved = localStorage.getItem("redline_admin_key");
   if (saved) {
     document.getElementById("adminKey").value = saved;
@@ -40,8 +57,11 @@ slider.addEventListener("input", () => { sliderLabel.textContent = slider.value;
 
 async function apiFetch(path, options = {}) {
   const adminKey = getAdminKey();
-  if (!adminKey) throw new Error("Admin key is required — enter it above and click Save.");
-  const headers = { "X-Admin-Key": adminKey, ...(options.headers || {}) };
+  const inviteToken = getInviteToken();
+  if (!adminKey && !inviteToken) throw new Error("No access key — enter an admin key or use an invite link.");
+  const headers = { ...(options.headers || {}) };
+  if (adminKey) headers["X-Admin-Key"] = adminKey;
+  if (!adminKey && inviteToken) headers["X-Invite-Token"] = inviteToken;
   if (options.body) headers["Content-Type"] = "application/json";
   const resp = await fetch(path, { ...options, headers });
   const data = await resp.json().catch(() => ({}));

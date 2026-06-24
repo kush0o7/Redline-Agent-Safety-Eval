@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     judge_temperature: float = Field(0.0, validation_alias="JUDGE_TEMPERATURE")
     dev_fake_judge: bool = Field(False, validation_alias="DEV_FAKE_JUDGE")
     groq_api_key: str | None = Field(default=None, validation_alias="GROQ_API_KEY")
+    public_url: str = Field("https://redline-safety.fly.dev", validation_alias="PUBLIC_URL")
 
 
 settings = Settings()

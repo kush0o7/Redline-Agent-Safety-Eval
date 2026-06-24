@@ -82,6 +82,17 @@ class Trace(Base):
     run = relationship("Run", back_populates="traces")
 
 
+class InviteToken(Base):
+    __tablename__ = "invite_tokens"
+
+    token: Mapped[str] = mapped_column(Text, primary_key=True)
+    label: Mapped[str | None] = mapped_column(Text)           # e.g. "for alice"
+    used_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_uses: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    expires_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AnalyticsEvent(Base):
     __tablename__ = "analytics_events"
 
