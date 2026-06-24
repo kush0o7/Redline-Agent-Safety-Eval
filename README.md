@@ -1,11 +1,19 @@
 # Redline — Agent Safety Evals
 
-**Open-source safety evaluation platform for LLM agents.**  
-Point Redline at your agent, run a battery of adversarial tests, and get a scored safety report in minutes.
+**Free, open-source safety evaluation platform for LLM agents.**  
+Fire 75+ adversarial prompts at your agent. Get a safety score. See how you rank.
 
+[![Live Demo](https://img.shields.io/badge/live%20demo-redline--safety.fly.dev-3ddc97)](https://redline-safety.fly.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Docker](https://img.shields.io/badge/docker-compose-blue.svg)](docker-compose.yml)
+
+---
+
+## Try it now — no signup
+
+**[redline-safety.fly.dev](https://redline-safety.fly.dev)**
+
+Enter your name, point it at your agent (or use the default), click Run. Takes 2 minutes. Your score shows up on the public leaderboard.
 
 ---
 
@@ -14,206 +22,75 @@ Point Redline at your agent, run a battery of adversarial tests, and get a score
 You built an agent. How do you know it won't:
 - comply with a jailbreak prompt?
 - hallucinate facts it presents as certain?
+- get manipulated by adversarial instructions embedded in user content?
 - refuse benign requests it should answer?
 
-Redline answers those questions automatically. It runs real adversarial test cases from [JailbreakBench](https://jailbreakbench.github.io/), scores every response with an LLM-as-judge, and gives you a per-metric breakdown — no manual review needed.
+Redline answers those questions automatically with 75+ real adversarial test cases, scored by an LLM judge — no manual review needed.
 
 ---
 
 ## What it tests
 
-| Category | What it catches |
-|---|---|
-| **Jailbreaks** | Does your agent comply with harmful requests that are creatively reworded? |
-| **Policy compliance** | Does it refuse when it should, and answer when it should? |
-| **Hallucination** | Does it make up unverifiable facts and present them as certain? |
-| **Must-include / must-not-include** | Does it follow hard output rules? |
-| **StrongREJECT** | For jailbreak cases: a non-refusal that is specific + convincing = worst failure |
+| Category | Test cases | What it catches |
+|---|---|---|
+| **Jailbreaks** | 20+ | DAN, persona attacks, fiction covers, authority impersonation, token obfuscation |
+| **Prompt injection** | 10+ | Tool output attacks, indirect injection, role overrides |
+| **Hallucination** | 10+ | Fake APIs, fake papers, fake court cases, non-existent companies |
+| **Over-refusal (XSTest)** | 20 | Benign prompts that over-cautious models wrongly refuse |
+| **Crescendo / multi-turn** | 4 | Fake prior context used to escalate harmful requests |
+| **Misinformation** | 4 | Generating fake health claims, election fraud narratives |
+| **Privacy / surveillance** | 4 | Stalkerware, facial recognition tracking |
+| **Refusal** | 8 | Drug synthesis, weapons, phishing, doxxing |
 
 ---
 
 ## Safety tiers
 
-Every eval run gets a tier based on pass rate:
-
-| Tier | Pass rate | Badge color |
-|---|---|---|
-| 💎 Hardened | ≥ 90% | bright green |
-| ✅ Safe | 75–89% | green |
-| 🟡 Developing | 60–74% | yellow |
-| 🔴 At Risk | < 60% | red |
-
-Add your tier to your README (requires a publicly reachable Redline instance — shields.io can't reach localhost):
-```markdown
-[![Safety Score](https://img.shields.io/endpoint?url=https://your-redline-host/projects/{project_id}/badge)](https://github.com/kush0o7/Redline-Agent-Safety-Eval)
-```
+| Tier | Pass rate |
+|---|---|
+| 💎 Hardened | ≥ 90% |
+| ✅ Safe | 75–89% |
+| 🟡 Developing | 60–74% |
+| 🔴 At Risk | < 60% |
 
 ---
 
-## Quickstart (5 minutes)
+## Test your own agent (any OpenAI-compatible endpoint)
 
-**Requirements:** Docker + Docker Compose, and one LLM API key (OpenAI, Anthropic, Bedrock, or Ollama locally).
+In the UI, check **"Test my own agent endpoint"** and enter:
+- **Endpoint URL**: e.g. `https://openrouter.ai/api/v1` or your own API
+- **API key**: your key for that endpoint
+- **Model**: e.g. `openai/gpt-4o-mini` or `anthropic/claude-3-haiku`
+
+Works with OpenAI, Anthropic (via OpenRouter), Groq, Together AI, Fireworks, Ollama, vLLM, LiteLLM proxy, or any custom agent that speaks OpenAI chat completions format.
+
+---
+
+## Self-host in 5 minutes
 
 ```bash
 git clone https://github.com/kush0o7/Redline-Agent-Safety-Eval
 cd Redline-Agent-Safety-Eval
-
 cp .env.example .env
-# Edit .env: set ADMIN_API_KEY, your LLM provider + key
-
+# Edit .env — set ADMIN_API_KEY and your LLM provider key
 docker compose up --build
 ```
 
-Open **http://localhost:8001/ui/** → click **Run Demo** → watch live results stream in.
+Open **http://localhost:8001/ui/**
 
 ---
 
-## Claude Code integration (MCP)
-
-If you use Claude Code daily, install the Redline MCP server and run evals without leaving your editor:
+## API — one call to run everything
 
 ```bash
-pip install -e ./mcp-server
-```
-
-Add to `.claude/settings.json`:
-```json
-{
-  "mcpServers": {
-    "redline": {
-      "command": "redline-mcp",
-      "env": {
-        "REDLINE_URL": "http://localhost:8001",
-        "REDLINE_API_KEY": "your-admin-key"
-      }
-    }
-  }
-}
-```
-
-Then just ask Claude Code:
-- *"Run safety evals on my agent using 15 test cases"*
-- *"Compare my baseline run vs debate run — did safety improve?"*
-- *"Which test cases did my agent fail?"*
-
-No curl, no switching context. Full formatted safety report inline.
-
----
-
-## One-call eval (`/quick-eval`)
-
-Instead of five API calls, do everything in one:
-
-```bash
-# Start an eval — creates project, seeds testcases, queues run
-curl -X POST http://localhost:8001/quick-eval \
-  -H "X-Admin-Key: $ADMIN_API_KEY" \
+# Queue an eval (no key needed on the hosted version)
+curl -X POST https://redline-safety.fly.dev/quick-eval \
   -H "Content-Type: application/json" \
-  -d '{"testcase_count": 10, "mode": "baseline"}'
-# → {"run_id": "...", "project_id": "...", "status": "queued", "results_url": "/quick-eval/{run_id}"}
+  -d '{"testcase_count": 10, "mode": "baseline", "submitter": "your-name"}'
+# → {"run_id": "...", "stream_url": "..."}
 
-# Poll for results (returns tier + full breakdown when done)
-curl http://localhost:8001/quick-eval/{run_id} \
-  -H "X-Admin-Key: $ADMIN_API_KEY"
-```
-
----
-
-## Test YOUR agent
-
-If you've built an agent with an OpenAI-compatible API endpoint (LangChain, LlamaIndex, FastAPI with `/v1/chat/completions`, etc.) you can point Redline directly at it — **no code changes needed**:
-
-```env
-LLM_PROVIDER=openai
-OPENAI_BASE_URL=https://your-agent.example.com/v1
-OPENAI_API_KEY=your-key-or-any-string
-DEFAULT_MODEL=your-model-name
-```
-
-Then restart: `docker compose down && docker compose up --build`
-
-Works with any OpenAI-compatible server: [Ollama](https://ollama.com/), [Together AI](https://www.together.ai/), [Groq](https://groq.com/), [LiteLLM proxy](https://github.com/BerriAI/litellm), [vLLM](https://github.com/vllm-project/vllm), and more.
-
-For agents that don't expose an HTTP API, add a thin provider in [`backend/app/llm/provider.py`](backend/app/llm/provider.py) — it only needs to implement one method:
-
-```python
-async def complete(self, messages, model, temperature, seed) -> str:
-    # call your agent, return the response text
-```
-
----
-
-## Providers
-
-| Provider | Set `LLM_PROVIDER=` | Notes |
-|---|---|---|
-| OpenAI | `openai` | `OPENAI_API_KEY` required |
-| Custom endpoint | `openai` + `OPENAI_BASE_URL` | Any OpenAI-compatible server |
-| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` required |
-| Ollama (local) | `ollama` | Free, runs locally |
-| AWS Bedrock | `bedrock` | IAM credentials required |
-| Fake | `fake` | No API calls — for testing Redline itself |
-
----
-
-## Eval modes
-
-| Mode | How it works |
-|---|---|
-| **Baseline** | Your agent responds directly — no mitigation |
-| **Debate** | Proposer → Critic → Revised output — tests if self-critique improves safety |
-
-Run both and compare results to see if your mitigation strategy actually helps:
-
-```bash
-curl "http://localhost:8001/projects/{id}/runs/compare?base_run_id={a}&candidate_run_id={b}" \
-  -H "X-Admin-Key: $ADMIN_API_KEY"
-```
-
----
-
-## API reference
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/projects` | Create a project |
-| `POST` | `/projects/{project_id}/seed-testcases` | Load JailbreakBench + handcrafted cases |
-| `GET` | `/projects/{project_id}/testcases` | List test cases |
-| `POST` | `/projects/{project_id}/runs` | Start an eval run (async, queued) |
-| `GET` | `/projects/{project_id}/runs/{run_id}` | Run status + summary |
-| `GET` | `/projects/{project_id}/runs/{run_id}/stream` | **SSE** — live status stream |
-| `GET` | `/projects/{project_id}/runs/{run_id}/results` | Per-testcase results |
-| `GET` | `/projects/{project_id}/runs/{run_id}/traces/{tc_id}` | Full trace events |
-| `GET` | `/projects/{project_id}/runs/compare` | Diff two runs |
-
-All endpoints require `X-Admin-Key: <your key>`.
-
-### Example: full eval flow
-
-```bash
-# 1. Create a project
-curl -X POST http://localhost:8001/projects \
-  -H "X-Admin-Key: $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"my-agent-v1"}'
-
-# 2. Seed test cases
-curl -X POST http://localhost:8001/projects/{project_id}/seed-testcases \
-  -H "X-Admin-Key: $ADMIN_API_KEY"
-
-# 3. List cases and pick some IDs
-curl http://localhost:8001/projects/{project_id}/testcases \
-  -H "X-Admin-Key: $ADMIN_API_KEY"
-
-# 4. Start a run
-curl -X POST http://localhost:8001/projects/{project_id}/runs \
-  -H "X-Admin-Key: $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"testcase_ids":["...","..."],"mode":"baseline","seed":7}'
-
-# 5. Get results
-curl http://localhost:8001/projects/{project_id}/runs/{run_id}/results \
-  -H "X-Admin-Key: $ADMIN_API_KEY"
+# Get results when done
+curl https://redline-safety.fly.dev/quick-eval/{run_id}
 ```
 
 ---
@@ -221,66 +98,61 @@ curl http://localhost:8001/projects/{project_id}/runs/{run_id}/results \
 ## Architecture
 
 ```
-Browser UI (static)
+Browser UI (static HTML/JS)
        │
-  FastAPI (port 8001)
+  FastAPI + ARQ worker (single Fly.io machine)
        │
-  ┌────┴─────┐
-  │          │
-Postgres   Redis + ARQ worker
-             │
-         LLM Provider ──► your agent / OpenAI / Anthropic / Bedrock / Ollama
-                          LLM Judge (LiteLLM + Instructor)
+  ┌────┴─────────┐
+  │              │
+Postgres       Redis (Upstash)
+(Supabase)         │
+               LLM Provider → agent under test
+               LLM Judge    → scores every response
 ```
 
-- **Async job queue** — ARQ workers, `max_jobs=10`, `job_timeout=600s`
-- **SSE streaming** — live run status pushed to the browser
+- **75+ test cases** — JailbreakBench + XSTest + Crescendo + handcrafted attacks
+- **Async job queue** — ARQ workers, results streamed live via SSE
 - **LLM-as-judge** — structured scoring via `instructor` + `litellm`
-- **57 test cases** — JailbreakBench adversarial prompts + XSTest over-refusal cases + handcrafted persona attacks and Crescendo-style escalation
+- **Public leaderboard** — best score per model, anyone can compete
+
+---
+
+## Providers
+
+| Provider | `LLM_PROVIDER=` | Notes |
+|---|---|---|
+| OpenAI | `openai` | `OPENAI_API_KEY` required |
+| Any OpenAI-compatible | `openai` + `OPENAI_BASE_URL` | Groq, Together, vLLM, Ollama, etc. |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` required |
+| AWS Bedrock | `bedrock` | IAM credentials required |
+| Fake (no API calls) | `fake` | For testing Redline itself |
 
 ---
 
 ## Running tests
 
 ```bash
-cd backend
-pip install -e ".[dev]"
-pytest tests/ -v
-# → 28/28 passing (no Docker, no API calls needed)
+cd backend && pip install -e ".[dev]"
+pytest tests/ -v   # all passing, no API keys required
 ```
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `Unknown LLM_PROVIDER` | Check `LLM_PROVIDER` value in `.env` — valid: `openai`, `anthropic`, `bedrock`, `ollama`, `fake` |
-| Bedrock `AccessDeniedException` | Enable model access in AWS Bedrock console + verify IAM `bedrock:Converse` permission |
-| OpenAI 429 | Reduce testcase count, wait 1–2 min, or switch to `fake` provider |
-| UI shows 404 | Navigate to `http://localhost:8001/ui/` (trailing slash matters) |
-| Docker not found | Start Docker Desktop first |
 
 ---
 
 ## Roadmap
 
-- [x] LLM-as-judge scoring (instructor + litellm)
-- [x] JailbreakBench + StrongREJECT test cases
-- [x] Async job queue with SSE streaming
-- [x] Run comparison (diff two runs by metric)
-- [ ] OpenAI-compatible webhook agent submission (no code changes needed)
-- [ ] Multi-tenancy — Clerk auth + per-user isolation
-- [ ] Next.js dashboard with heatmaps and real-time SSE
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs are welcome — especially new test cases, provider integrations, and scoring improvements.
+- [x] 75+ adversarial test cases (jailbreaks, injection, hallucination, XSTest, Crescendo)
+- [x] Public leaderboard — compete with others
+- [x] Test any OpenAI-compatible agent endpoint
+- [x] LLM-as-judge scoring with metric breakdown
+- [x] Run comparison (diff two runs)
+- [x] SSE live streaming
+- [ ] HarmBench + WildGuard dataset loaders
+- [ ] Multi-turn attack simulation
+- [ ] CI/CD GitHub Action
+- [ ] Auth + per-user run history
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT
