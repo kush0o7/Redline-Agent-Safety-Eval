@@ -1,50 +1,38 @@
-// ── Auth ──────────────────────────────────────────────────────────────────────
+// ── Admin toggle ──────────────────────────────────────────────────────────────
 
-// Check for invite token in URL (?invite=TOKEN)
-const _urlParams = new URLSearchParams(window.location.search);
-const _inviteToken = _urlParams.get("invite");
-
-function getAdminKey() {
-  return document.getElementById("adminKey").value.trim();
+function toggleAdmin() {
+  const s = document.getElementById("adminSection");
+  s.classList.toggle("visible");
 }
 
-function getInviteToken() {
-  return _inviteToken || localStorage.getItem("redline_invite_token") || null;
+function getAdminKey() {
+  const el = document.getElementById("adminKey");
+  return el ? el.value.trim() : "";
 }
 
 function setAuthStatus(ok) {
   const el = document.getElementById("authStatus");
+  if (!el) return;
   el.textContent = ok ? "set" : "not set";
   el.className = ok ? "badge badge-green" : "badge badge-muted";
 }
 
 (function initAuth() {
-  // If invite token in URL, store it and hide the admin key section
-  if (_inviteToken) {
-    localStorage.setItem("redline_invite_token", _inviteToken);
-    document.querySelector("section.card").style.display = "none";
-    setAuthStatus(true);
-    // Clean the token from the URL bar
-    window.history.replaceState({}, "", "/ui/");
-    return;
-  }
   const saved = localStorage.getItem("redline_admin_key");
   if (saved) {
-    document.getElementById("adminKey").value = saved;
+    const el = document.getElementById("adminKey");
+    if (el) el.value = saved;
     setAuthStatus(true);
   }
 })();
 
-document.getElementById("adminKey").addEventListener("input", () => {
-  setAuthStatus(!!document.getElementById("adminKey").value.trim());
+document.getElementById("adminKey")?.addEventListener("input", () => {
+  setAuthStatus(!!getAdminKey());
 });
 
-document.getElementById("saveKey").addEventListener("click", () => {
+document.getElementById("saveKey")?.addEventListener("click", () => {
   const key = getAdminKey();
-  if (key) {
-    localStorage.setItem("redline_admin_key", key);
-    setAuthStatus(true);
-  }
+  if (key) { localStorage.setItem("redline_admin_key", key); setAuthStatus(true); }
 });
 
 // ── Slider ────────────────────────────────────────────────────────────────────
@@ -53,21 +41,63 @@ const slider = document.getElementById("testcaseCount");
 const sliderLabel = document.getElementById("testcaseCountLabel");
 slider.addEventListener("input", () => { sliderLabel.textContent = slider.value; });
 
-// ── API helper ────────────────────────────────────────────────────────────────
+// ── API helpers ───────────────────────────────────────────────────────────────
 
 async function apiFetch(path, options = {}) {
   const adminKey = getAdminKey();
-  const inviteToken = getInviteToken();
-  if (!adminKey && !inviteToken) throw new Error("No access key — enter an admin key or use an invite link.");
   const headers = { ...(options.headers || {}) };
   if (adminKey) headers["X-Admin-Key"] = adminKey;
-  if (!adminKey && inviteToken) headers["X-Invite-Token"] = inviteToken;
   if (options.body) headers["Content-Type"] = "application/json";
   const resp = await fetch(path, { ...options, headers });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data.detail || resp.statusText);
   return data;
 }
+
+async function publicFetch(path) {
+  const resp = await fetch(path);
+  if (!resp.ok) throw new Error(resp.statusText);
+  return resp.json();
+}
+
+// ── Leaderboard ───────────────────────────────────────────────────────────────
+
+async function loadLeaderboard() {
+  try {
+    const { entries, total_runs, total_models, avg_pass_pct } = await publicFetch("/leaderboard");
+
+    // Stats bar
+    document.getElementById("statRuns").textContent   = total_runs ?? "—";
+    document.getElementById("statModels").textContent = total_models ?? "—";
+    document.getElementById("statAvg").textContent    = avg_pass_pct != null ? `${avg_pass_pct}%` : "—";
+
+    const tbody = document.getElementById("lbBody");
+    if (!entries || entries.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="lb-empty">No evals yet — be the first to run one below 👇</td></tr>`;
+      return;
+    }
+
+    const myName = localStorage.getItem("redline_submitter") || "";
+    tbody.innerHTML = entries.map(e => {
+      const isYou = myName && e.submitter === myName;
+      return `<tr class="${isYou ? "lb-you" : ""}">
+        <td class="lb-rank">${e.rank}</td>
+        <td>
+          <div class="lb-model">${e.model}${isYou ? " 👈 you" : ""}</div>
+          <div class="lb-sub">by ${e.submitter || "anonymous"}</div>
+        </td>
+        <td class="lb-pct">${e.pass_pct}%</td>
+        <td><span class="lb-tier">${e.tier || "—"}</span></td>
+        <td class="lb-date">${e.testcase_count ?? "—"}</td>
+        <td class="lb-date">${e.date || "—"}</td>
+      </tr>`;
+    }).join("");
+  } catch (e) {
+    document.getElementById("lbBody").innerHTML = `<tr><td colspan="6" class="lb-empty">Could not load leaderboard.</td></tr>`;
+  }
+}
+
+loadLeaderboard();
 
 // ── Render helpers ────────────────────────────────────────────────────────────
 
@@ -93,16 +123,18 @@ function metricColor(pct) {
   return "#ef4444";
 }
 
+let _lastResult = null;
+
 function renderResults(data) {
-  const summary   = data.summary || {};
-  const passRate  = summary.pass_rate ?? 0;
-  const pct       = Math.round(passRate * 100);
-  const tier      = data.tier || "At Risk";
-  const cfg       = TIER_CONFIG[tier] || TIER_CONFIG["At Risk"];
+  _lastResult = data;
+  const summary  = data.summary || {};
+  const passRate = summary.pass_rate ?? 0;
+  const pct      = Math.round(passRate * 100);
+  const tier     = data.tier || "At Risk";
+  const cfg      = TIER_CONFIG[tier] || TIER_CONFIG["At Risk"];
 
   document.getElementById("resultsSection").classList.remove("hidden");
 
-  // Tier card
   document.getElementById("tierEmoji").textContent = cfg.emoji;
 
   const tierLabel = document.getElementById("tierLabel");
@@ -113,21 +145,18 @@ function renderResults(data) {
   passRateNum.textContent = `${pct}%`;
   passRateNum.className = `pass-rate-number ${cfg.cls}`;
 
-  document.getElementById("mainProgressBar").style.cssText =
-    `width: ${pct}%; background: ${cfg.barColor}`;
+  document.getElementById("mainProgressBar").style.cssText = `width:${pct}%;background:${cfg.barColor}`;
 
   // Metrics
   const metrics = summary.metrics || {};
   const grid = document.getElementById("metricsGrid");
   grid.innerHTML = "";
-
   for (const [key, label] of Object.entries(METRIC_LABELS)) {
     const m = metrics[key];
     if (!m) continue;
     const mpct  = Math.round((m.pass_rate ?? 0) * 100);
     const icon  = mpct >= 75 ? "✅" : (mpct >= 60 ? "⚠️" : "❌");
     const color = metricColor(mpct);
-
     grid.innerHTML += `
       <div class="metric-row">
         <span class="metric-icon">${icon}</span>
@@ -142,38 +171,56 @@ function renderResults(data) {
   // Failures
   const results  = data.results || [];
   const failures = results.filter(r => !r.passed);
-
   if (failures.length > 0) {
     document.getElementById("failuresCard").classList.remove("hidden");
     document.getElementById("failureCount").textContent = String(failures.length);
-
     const list = document.getElementById("failuresList");
     list.innerHTML = failures.slice(0, 8).map(r => {
-      const bad = Object.entries(r.scores || {})
-        .filter(([, v]) => v === false)
-        .map(([k]) => k)
-        .join(", ");
-      return `<div class="failure-item">
-        <div class="failure-id">${r.testcase_id}</div>
-        <div class="failure-metrics">Failed: ${bad || "unknown"}</div>
-      </div>`;
+      const bad = Object.entries(r.scores || {}).filter(([, v]) => v === false).map(([k]) => k).join(", ");
+      return `<div class="failure-item"><div class="failure-id">${r.testcase_id}</div><div class="failure-metrics">Failed: ${bad || "unknown"}</div></div>`;
     }).join("");
-
-    if (failures.length > 8) {
-      list.innerHTML += `<p class="hint" style="margin-top:8px">…and ${failures.length - 8} more</p>`;
-    }
+    if (failures.length > 8) list.innerHTML += `<p class="hint" style="margin-top:8px">…and ${failures.length - 8} more</p>`;
   }
 
-  // Run metadata
   document.getElementById("runMeta").textContent =
     `run_id: ${data.run_id}  ·  project_id: ${data.project_id}  ·  model: ${data.model || "default"}  ·  mode: ${data.mode}`;
+
+  // Reload leaderboard to show new rank
+  loadLeaderboard().then(() => {
+    const myName = localStorage.getItem("redline_submitter") || "";
+    const rows = document.querySelectorAll("#lbBody tr.lb-you");
+    if (rows.length > 0) {
+      const rankCell = rows[0].querySelector(".lb-rank");
+      if (rankCell) {
+        document.getElementById("yourRank").textContent = `🏆 You're ranked #${rankCell.textContent} on the leaderboard`;
+      }
+    }
+  });
+}
+
+// ── Share ─────────────────────────────────────────────────────────────────────
+
+function shareResult() {
+  if (!_lastResult) return;
+  const pct   = Math.round((_lastResult.summary?.pass_rate ?? 0) * 100);
+  const tier  = _lastResult.tier || "At Risk";
+  const model = _lastResult.model || "my model";
+  const text  = `I just tested ${model} on Redline safety evals and scored ${pct}% (${tier})! Test your agent: https://redline-safety.fly.dev`;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => alert("Copied to clipboard! Share it anywhere."));
+  } else {
+    prompt("Copy this:", text);
+  }
+}
+
+function scrollToRun() {
+  document.getElementById("runSection").scrollIntoView({ behavior: "smooth" });
 }
 
 // ── Agent endpoint toggle ─────────────────────────────────────────────────────
 
 document.getElementById("useCustomAgent").addEventListener("change", (e) => {
-  const fields = document.getElementById("agentEndpointFields");
-  fields.classList.toggle("hidden", !e.target.checked);
+  document.getElementById("agentEndpointFields").classList.toggle("hidden", !e.target.checked);
 });
 
 // ── Quick Eval ────────────────────────────────────────────────────────────────
@@ -183,7 +230,6 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
   const progressSection = document.getElementById("progressSection");
   const progressBar     = document.getElementById("progressBar");
   const progressLabel   = document.getElementById("progressLabel");
-  const resultsSection  = document.getElementById("resultsSection");
   const failuresCard    = document.getElementById("failuresCard");
 
   const setProgress = (pct, label) => {
@@ -195,7 +241,7 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
     btn.disabled = true;
     btn.textContent = "Running…";
     progressSection.classList.remove("hidden");
-    resultsSection.classList.add("hidden");
+    document.getElementById("resultsSection").classList.add("hidden");
     failuresCard.classList.add("hidden");
     progressBar.style.background = "var(--accent)";
 
@@ -204,57 +250,57 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
     const count       = parseInt(document.getElementById("testcaseCount").value, 10);
     const mode        = document.getElementById("runMode").value;
     const model       = document.getElementById("runModel").value.trim() || undefined;
+    const submitter   = document.getElementById("submitterName").value.trim() || undefined;
     const useCustom   = document.getElementById("useCustomAgent").checked;
     const endpointUrl = useCustom ? document.getElementById("agentEndpointUrl").value.trim() : undefined;
     const endpointKey = useCustom ? document.getElementById("agentEndpointKey").value.trim() : undefined;
 
-    if (useCustom && !endpointUrl) {
-      throw new Error("Agent endpoint URL is required when 'Test my own agent' is checked.");
-    }
+    if (useCustom && !endpointUrl) throw new Error("Agent endpoint URL is required.");
+    if (submitter) localStorage.setItem("redline_submitter", submitter);
 
-    const queued = await apiFetch("/quick-eval", {
+    const queued = await fetch("/quick-eval", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        testcase_count: count,
-        mode,
-        ...(model && { model }),
+        testcase_count: count, mode,
+        ...(model       && { model }),
+        ...(submitter   && { submitter }),
         ...(endpointUrl && { agent_endpoint_url: endpointUrl }),
         ...(endpointKey && { agent_endpoint_key: endpointKey }),
       }),
-    });
+    }).then(r => r.json());
+
+    if (!queued.run_id) throw new Error(queued.detail || "Failed to queue run.");
 
     const { run_id, project_id, testcase_count } = queued;
-    setProgress(15, `Run queued — ${testcase_count} test cases loading…`);
+    setProgress(15, `Queued — ${testcase_count} test cases loading…`);
 
-    // Stream live status
-    const adminKey = getAdminKey();
+    // SSE stream — use admin key if set, otherwise stream_url from server
+    const adminKey  = getAdminKey();
+    const streamUrl = queued.stream_url || `/projects/${project_id}/runs/${run_id}/stream?x_admin_key=${encodeURIComponent(adminKey)}`;
+
     const finalStatus = await new Promise((resolve) => {
-      const url = `/projects/${project_id}/runs/${run_id}/stream?x_admin_key=${encodeURIComponent(adminKey)}`;
-      const es = new EventSource(url);
+      const es = new EventSource(streamUrl);
       es.onmessage = (e) => {
         const payload = JSON.parse(e.data);
-        if (payload.status === "running") setProgress(55, "Evaluating test cases…");
-        if (payload.status === "completed" || payload.status === "failed") {
-          es.close();
-          resolve(payload.status);
-        }
+        if (payload.status === "running") setProgress(55, "Evaluating test cases — this takes ~2 min for 10 cases…");
+        if (payload.status === "completed" || payload.status === "failed") { es.close(); resolve(payload.status); }
       };
       es.onerror = () => { es.close(); resolve("error"); };
-      setTimeout(() => { es.close(); resolve("timeout"); }, 180_000);
+      setTimeout(() => { es.close(); resolve("timeout"); }, 300_000);
     });
 
     if (finalStatus !== "completed") {
       progressBar.style.background = "#ef4444";
-      setProgress(100, finalStatus === "timeout"
-        ? "Timed out — run may still be in progress."
-        : "Run failed. Check your API key and model config.");
+      setProgress(100, finalStatus === "timeout" ? "Timed out — run may still be processing." : "Run failed. Check model config.");
       return;
     }
 
     setProgress(88, "Fetching results…");
-    const final = await apiFetch(`/quick-eval/${run_id}`);
+    const final = await fetch(`/quick-eval/${run_id}`, {
+      headers: adminKey ? { "X-Admin-Key": adminKey } : {},
+    }).then(r => r.json());
     setProgress(100, "Done.");
-
     renderResults(final);
 
   } catch (err) {
@@ -310,8 +356,7 @@ document.getElementById("createRun").addEventListener("click", async () => {
     const llm  = document.getElementById("advRunModel").value.trim() || null;
     const seed = Number(document.getElementById("advRunSeed").value || 0);
     const data = await apiFetch(`/projects/${pid}/runs`, {
-      method: "POST",
-      body: JSON.stringify({ testcase_ids: ids, mode, llm_model: llm, seed }),
+      method: "POST", body: JSON.stringify({ testcase_ids: ids, mode, llm_model: llm, seed }),
     });
     document.getElementById("runId").value = data.run_id;
     rawOutput(data);
@@ -320,17 +365,13 @@ document.getElementById("createRun").addEventListener("click", async () => {
 
 document.getElementById("getRun").addEventListener("click", async () => {
   try {
-    const pid = document.getElementById("projectId").value.trim();
-    const rid = document.getElementById("runId").value.trim();
-    rawOutput(await apiFetch(`/projects/${pid}/runs/${rid}`));
+    rawOutput(await apiFetch(`/projects/${document.getElementById("projectId").value.trim()}/runs/${document.getElementById("runId").value.trim()}`));
   } catch (err) { rawOutput(String(err)); }
 });
 
 document.getElementById("getResults").addEventListener("click", async () => {
   try {
-    const pid = document.getElementById("projectId").value.trim();
-    const rid = document.getElementById("runId").value.trim();
-    rawOutput(await apiFetch(`/projects/${pid}/runs/${rid}/results`));
+    rawOutput(await apiFetch(`/projects/${document.getElementById("projectId").value.trim()}/runs/${document.getElementById("runId").value.trim()}/results`));
   } catch (err) { rawOutput(String(err)); }
 });
 

@@ -29,6 +29,7 @@ async def execute_run(
     run: Run,
     testcases: list[Testcase],
     tool_outputs_by_testcase: dict | None = None,
+    submitter: str | None = None,
 ) -> dict:
     agent = _select_agent(run.mode)
     provider = get_provider_for_run(run)
@@ -116,6 +117,7 @@ async def execute_run(
         tier=summary.get("tier"),
         pass_rate=summary.get("pass_rate"),
         testcase_count=len(testcases),
+        user_email=submitter,
     ))
     db.commit()
     return summary

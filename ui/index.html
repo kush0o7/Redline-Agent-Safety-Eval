@@ -5,21 +5,62 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Redline — Agent Safety Evals</title>
     <link rel="stylesheet" href="/ui/styles.css" />
+    <style>
+      /* Stats ticker */
+      .stats-bar { display: flex; gap: 32px; margin: 0 0 28px; flex-wrap: wrap; }
+      .stat-item { text-align: center; }
+      .stat-num { font-size: 28px; font-weight: 800; color: var(--accent); line-height: 1; }
+      .stat-label { font-size: 12px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: .05em; }
+
+      /* Leaderboard */
+      .lb-table { width: 100%; border-collapse: collapse; }
+      .lb-table th { text-align: left; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; padding: 0 12px 10px; }
+      .lb-table td { padding: 11px 12px; border-top: 1px solid var(--border); font-size: 14px; }
+      .lb-table tr:hover td { background: rgba(255,255,255,.03); cursor: default; }
+      .lb-rank { color: var(--muted); font-size: 13px; width: 32px; }
+      .lb-model { font-weight: 600; }
+      .lb-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+      .lb-pct { font-size: 18px; font-weight: 800; color: var(--accent); }
+      .lb-tier { font-size: 11px; background: rgba(255,255,255,.07); border-radius: 5px; padding: 2px 7px; }
+      .lb-date { color: var(--muted); font-size: 12px; }
+      .lb-empty { color: var(--muted); padding: 24px 12px; font-size: 14px; }
+      .lb-you { background: rgba(61,220,151,.06) !important; }
+      .lb-you td { border-top-color: rgba(61,220,151,.2) !important; }
+
+      /* CTA section */
+      .cta-section { margin: 32px 0 0; }
+      .cta-divider { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+      .cta-divider::before, .cta-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+      .cta-divider span { color: var(--muted); font-size: 13px; white-space: nowrap; }
+
+      /* Name input */
+      .name-row { display: flex; gap: 10px; margin-bottom: 16px; }
+      .name-row input { flex: 1; }
+
+      /* Share */
+      .share-row { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+      .btn-share { background: rgba(255,255,255,.08); border: 1px solid var(--border); color: var(--text); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; }
+      .btn-share:hover { background: rgba(255,255,255,.14); }
+
+      /* Admin toggle */
+      .admin-toggle { text-align: right; margin-bottom: -16px; }
+      .admin-toggle a { font-size: 12px; color: var(--muted); text-decoration: none; cursor: pointer; }
+      .admin-toggle a:hover { color: var(--text); }
+      .admin-section { display: none; }
+      .admin-section.visible { display: block; }
+    </style>
   </head>
   <body>
     <main class="container">
+      <div class="admin-toggle"><a id="adminToggle" onclick="toggleAdmin()">⚙️ admin</a></div>
+
       <header>
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-          <div>
-            <h1>Redline <span class="header-tag">Safety Evals</span></h1>
-            <p class="subtitle">Fire adversarial test cases at your LLM agent. Score every response. Get a safety tier.</p>
-          </div>
-          <a href="/ui/leaderboard.html" style="color:var(--accent);font-size:14px;text-decoration:none;margin-top:8px;white-space:nowrap;">🏆 Leaderboard</a>
-        </div>
+        <h1>Redline <span class="header-tag">Safety Evals</span></h1>
+        <p class="subtitle">Stress-test your AI agent against 75+ adversarial prompts. See how you rank.</p>
       </header>
 
-      <!-- Auth -->
-      <section class="card">
+      <!-- Admin key (hidden by default) -->
+      <section id="adminSection" class="card admin-section">
         <div class="card-header">
           <h2>Admin Key</h2>
           <span id="authStatus" class="badge badge-muted">not set</span>
@@ -28,13 +69,46 @@
           <input id="adminKey" type="password" placeholder="X-Admin-Key" />
           <button id="saveKey" class="btn-secondary">Save</button>
         </div>
-        <p class="hint">Saved to localStorage — never sent anywhere except this Redline instance.</p>
+        <p class="hint">Only needed for /admin/* endpoints. Regular evals are public.</p>
       </section>
 
-      <!-- Quick Eval hero -->
-      <section class="card card-hero">
-        <h2>Run Safety Eval</h2>
-        <p class="hint" style="margin: 0 0 20px;">One click: creates a project, loads test cases, runs the eval, shows scored results.</p>
+      <!-- Stats bar -->
+      <div class="stats-bar" id="statsBar">
+        <div class="stat-item"><div class="stat-num" id="statRuns">—</div><div class="stat-label">evals run</div></div>
+        <div class="stat-item"><div class="stat-num" id="statModels">—</div><div class="stat-label">models tested</div></div>
+        <div class="stat-item"><div class="stat-num" id="statAvg">—</div><div class="stat-label">avg score</div></div>
+      </div>
+
+      <!-- Leaderboard -->
+      <section class="card">
+        <div class="card-header">
+          <h2>🏆 Leaderboard</h2>
+          <span class="badge badge-muted">best score per model</span>
+        </div>
+        <table class="lb-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Model / Submitted by</th>
+              <th>Score</th>
+              <th>Tier</th>
+              <th>Cases</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="lbBody">
+            <tr><td colspan="6" class="lb-empty">Loading leaderboard…</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- Run eval CTA -->
+      <section class="card card-hero cta-section" id="runSection">
+        <div class="cta-divider"><span>Test your agent — free, no signup</span></div>
+
+        <div class="name-row">
+          <input id="submitterName" type="text" placeholder="Your name or handle (shows on leaderboard)" maxlength="60" />
+        </div>
 
         <div class="form-grid">
           <label>
@@ -49,12 +123,12 @@
             Mode
             <select id="runMode">
               <option value="baseline">baseline — single LLM call</option>
-              <option value="debate">debate — proposer → critic → revision (3× calls)</option>
+              <option value="debate">debate — proposer → critic → revision</option>
             </select>
           </label>
 
           <label>
-            Model override <span class="hint-inline">optional — uses server default if empty</span>
+            Model override <span class="hint-inline">optional</span>
             <input id="runModel" type="text" placeholder="e.g. gpt-4o-mini, claude-3-haiku-20240307" />
           </label>
         </div>
@@ -63,24 +137,24 @@
           <div class="agent-endpoint-toggle">
             <label class="toggle-label">
               <input id="useCustomAgent" type="checkbox" />
-              Test my own agent
+              Test my own agent endpoint
             </label>
-            <span class="hint-inline">point Redline at any OpenAI-compatible endpoint</span>
+            <span class="hint-inline">point Redline at any OpenAI-compatible URL</span>
           </div>
           <div id="agentEndpointFields" class="agent-endpoint-fields hidden">
             <label>
               Agent endpoint URL
-              <input id="agentEndpointUrl" type="text" placeholder="https://your-api.com/v1  (Redline will POST to /chat/completions)" />
+              <input id="agentEndpointUrl" type="text" placeholder="https://your-api.com/v1" />
             </label>
             <label>
               Agent API key <span class="hint-inline">optional</span>
               <input id="agentEndpointKey" type="password" placeholder="sk-..." />
             </label>
-            <p class="hint">Your agent must accept OpenAI-format chat messages and return a response in the same format. <a href="https://platform.openai.com/docs/api-reference/chat" target="_blank" class="hint-link">Spec ↗</a></p>
+            <p class="hint">Must accept OpenAI-format chat messages and return the same format.</p>
           </div>
         </div>
 
-        <button id="runQuickEval" class="btn-primary btn-large">&#9654; Run Safety Eval</button>
+        <button id="runQuickEval" class="btn-primary btn-large">▶ Run Safety Eval</button>
 
         <div id="progressSection" class="progress-section hidden">
           <div class="progress-bar-track" style="margin-top: 16px;">
@@ -90,10 +164,8 @@
         </div>
       </section>
 
-      <!-- Results (hidden until run completes) -->
+      <!-- Results -->
       <div id="resultsSection" class="hidden">
-
-        <!-- Tier card -->
         <div class="card card-tier">
           <div class="tier-header">
             <div>
@@ -108,77 +180,62 @@
           <div class="progress-bar-track" style="margin-top: 14px;">
             <div id="mainProgressBar" class="progress-bar-fill" style="width: 0%"></div>
           </div>
+          <div id="yourRank" style="margin-top:12px;font-size:13px;color:var(--muted);"></div>
+          <div class="share-row">
+            <button class="btn-share" onclick="shareResult()">🔗 Share my score</button>
+            <button class="btn-share" onclick="scrollToRun()">🔁 Run again</button>
+          </div>
         </div>
 
-        <!-- Metrics -->
         <div class="card">
           <h2>Metric breakdown</h2>
           <div id="metricsGrid" class="metrics-grid"></div>
         </div>
 
-        <!-- Failures -->
         <div id="failuresCard" class="card hidden">
           <h2>Failures <span id="failureCount" class="badge badge-red"></span></h2>
           <div id="failuresList" class="failures-list"></div>
         </div>
 
-        <!-- Run metadata -->
         <div class="card card-meta">
           <p id="runMeta" class="run-meta"></p>
         </div>
-
       </div>
 
       <!-- Advanced (collapsed) -->
       <details class="card">
-        <summary class="advanced-summary">Advanced — manual control</summary>
+        <summary class="advanced-summary">Advanced — manual API control</summary>
         <div class="advanced-body">
-
           <div class="adv-section">
             <h3 class="adv-heading">Projects</h3>
             <div class="row">
               <input id="projectName" type="text" placeholder="Project name" />
               <button id="createProject" class="btn-secondary">Create project</button>
             </div>
-            <label>
-              Project ID
-              <input id="projectId" type="text" placeholder="UUID" />
-            </label>
+            <label>Project ID<input id="projectId" type="text" placeholder="UUID" /></label>
           </div>
-
           <div class="adv-section">
             <h3 class="adv-heading">Testcases</h3>
             <div class="row">
               <button id="seedTestcases" class="btn-secondary">Seed defaults</button>
               <button id="listTestcases" class="btn-secondary">List testcases</button>
             </div>
-            <label>
-              Testcase IDs (comma-separated)
-              <textarea id="testcaseIds" rows="2" placeholder="uuid1, uuid2, ..."></textarea>
-            </label>
+            <label>Testcase IDs (comma-separated)<textarea id="testcaseIds" rows="2" placeholder="uuid1, uuid2, ..."></textarea></label>
           </div>
-
           <div class="adv-section">
             <h3 class="adv-heading">Runs</h3>
             <div class="row">
-              <select id="advRunMode">
-                <option value="baseline">baseline</option>
-                <option value="debate">debate</option>
-              </select>
+              <select id="advRunMode"><option value="baseline">baseline</option><option value="debate">debate</option></select>
               <input id="advRunModel" type="text" placeholder="Model (optional)" />
-              <input id="advRunSeed" type="number" value="0" style="width: auto;" />
+              <input id="advRunSeed" type="number" value="0" style="width:auto;" />
               <button id="createRun" class="btn-secondary">Create run</button>
             </div>
-            <label>
-              Run ID
-              <input id="runId" type="text" placeholder="UUID" />
-            </label>
+            <label>Run ID<input id="runId" type="text" placeholder="UUID" /></label>
             <div class="row">
               <button id="getRun" class="btn-secondary">Get summary</button>
               <button id="getResults" class="btn-secondary">Get results</button>
             </div>
           </div>
-
           <div class="adv-section">
             <h3 class="adv-heading">Trace</h3>
             <div class="row">
@@ -186,12 +243,10 @@
               <button id="getTrace" class="btn-secondary">Get trace</button>
             </div>
           </div>
-
           <div class="adv-section">
             <h3 class="adv-heading">Raw output</h3>
             <pre id="output"></pre>
           </div>
-
         </div>
       </details>
     </main>

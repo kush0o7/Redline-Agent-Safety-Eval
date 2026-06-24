@@ -88,9 +88,10 @@ class QuickEvalCreate(BaseModel):
     seed: int = Field(default=7)
     agent_endpoint_url: str | None = Field(default=None, description="OpenAI-compatible chat endpoint to test (e.g. https://your-api.com/v1)")
     agent_endpoint_key: str | None = Field(default=None, description="API key for the agent endpoint")
+    submitter: str | None = Field(default=None, max_length=60, description="Display name for the leaderboard")
 
 
-@router.post("/quick-eval", dependencies=[Depends(_verify_eval_access)])
+@router.post("/quick-eval")
 async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = Depends(get_db)):
     """Create a project, seed test cases, and start a run in one call.
 
@@ -130,7 +131,7 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
     db.commit()
     db.refresh(run)
 
-    await request.app.state.arq_pool.enqueue_job("run_eval_task", str(run.id))
+    await request.app.state.arq_pool.enqueue_job("run_eval_task", str(run.id), payload.submitter)
 
     run_id = str(run.id)
     project_id = str(project.id)
@@ -144,7 +145,7 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
     }
 
 
-@router.get("/quick-eval/{run_id}", dependencies=[Depends(verify_admin_key)])
+@router.get("/quick-eval/{run_id}")
 def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
     """Poll for results. When status is 'completed', results are included inline."""
     run = db.get(Run, run_id)
@@ -216,6 +217,7 @@ def leaderboard(db: Session = Depends(get_db)):
         if model not in seen or (e.pass_rate or 0) > seen[model]["pass_rate"]:
             seen[model] = {
                 "model": model,
+                "submitter": e.user_email or "anonymous",
                 "pass_rate": round(e.pass_rate or 0, 3),
                 "pass_pct": round((e.pass_rate or 0) * 100),
                 "tier": e.tier,
@@ -225,7 +227,8 @@ def leaderboard(db: Session = Depends(get_db)):
     ranked = sorted(seen.values(), key=lambda x: -x["pass_rate"])
     for i, row in enumerate(ranked):
         row["rank"] = i + 1
-    return {"entries": ranked, "total_models": len(ranked)}
+    avg = round(sum(r["pass_pct"] for r in ranked) / len(ranked)) if ranked else 0
+    return {"entries": ranked, "total_models": len(ranked), "total_runs": len(events), "avg_pass_pct": avg}
 
 
 @router.get("/admin/stats", dependencies=[Depends(verify_admin_key)])

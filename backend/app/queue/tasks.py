@@ -7,7 +7,7 @@ from app.db.models import Run, Testcase
 from app.evals.runner import execute_run
 
 
-async def run_eval_task(ctx: dict, run_id: str) -> None:
+async def run_eval_task(ctx: dict, run_id: str, submitter: str | None = None) -> None:
     """ARQ task — runs inside the async worker process."""
     db = db_session.SessionLocal()
     try:
@@ -35,7 +35,7 @@ async def run_eval_task(ctx: dict, run_id: str) -> None:
             db.commit()
             return
 
-        await execute_run(db, run, testcases)
+        await execute_run(db, run, testcases, submitter=submitter)
 
     except Exception as exc:  # noqa: BLE001
         run = db.get(Run, run_id)
