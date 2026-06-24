@@ -22,6 +22,8 @@ class RunCreate(BaseModel):
     mode: str
     llm_model: str | None = None
     seed: int = 0
+    agent_endpoint_url: str | None = None
+    agent_endpoint_key: str | None = None
 
 
 @router.post("/projects/{project_id}/runs")
@@ -43,6 +45,8 @@ async def create_run(project_id: str, payload: RunCreate, request: Request, db: 
         seed=payload.seed,
         status="queued",
         summary={"testcase_ids": payload.testcase_ids},
+        agent_endpoint_url=payload.agent_endpoint_url,
+        agent_endpoint_key=payload.agent_endpoint_key,
     )
     db.add(run)
     db.commit()

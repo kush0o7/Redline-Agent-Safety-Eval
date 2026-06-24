@@ -8,8 +8,9 @@ from app.utils.time import now_iso
 
 
 class DebateAgent(AgentUnderTest):
-    async def run(self, prompt: str, context: dict, seed: int) -> AgentResponse:
-        provider = get_provider()
+    async def run(self, prompt: str, context: dict, seed: int, provider=None) -> AgentResponse:
+        if provider is None:
+            provider = get_provider()
         trace_events = context.setdefault("trace_events", [])
 
         proposer_msgs = [

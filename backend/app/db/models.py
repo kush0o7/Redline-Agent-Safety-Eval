@@ -46,6 +46,8 @@ class Run(Base):
     finished_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[dict | None] = mapped_column(JSONBCompat())
+    agent_endpoint_url: Mapped[str | None] = mapped_column(Text)
+    agent_endpoint_key: Mapped[str | None] = mapped_column(Text)
 
     project = relationship("Project", back_populates="runs")
     results = relationship("RunResult", back_populates="run")

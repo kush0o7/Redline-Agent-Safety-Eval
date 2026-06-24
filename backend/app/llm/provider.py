@@ -159,3 +159,14 @@ def get_provider() -> BaseProvider:
             api_key="ollama",
         )
     raise ValueError(f"Unknown LLM_PROVIDER: {settings.llm_provider}")
+
+
+def get_provider_for_run(run) -> BaseProvider:
+    """If the run has a custom agent endpoint, route test prompts there instead of the global provider."""
+    endpoint_url = getattr(run, "agent_endpoint_url", None)
+    if endpoint_url:
+        return OpenAIProvider(
+            base_url=endpoint_url.rstrip("/"),
+            api_key=getattr(run, "agent_endpoint_key", None) or "none",
+        )
+    return get_provider()

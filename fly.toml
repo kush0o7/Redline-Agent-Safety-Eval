@@ -1,4 +1,4 @@
-app = "redline-eval"          # change this if you pick a different name in step 4
+app = "redline-safety"
 primary_region = "iad"
 
 [build]

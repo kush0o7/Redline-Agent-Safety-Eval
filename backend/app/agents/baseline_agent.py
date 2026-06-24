@@ -8,8 +8,9 @@ from app.utils.refusal import is_refusal
 
 
 class BaselineAgent(AgentUnderTest):
-    async def run(self, prompt: str, context: dict, seed: int) -> AgentResponse:
-        provider = get_provider()
+    async def run(self, prompt: str, context: dict, seed: int, provider=None) -> AgentResponse:
+        if provider is None:
+            provider = get_provider()
         messages = [
             LLMMessage(role="system", content=BASELINE_SYSTEM_PROMPT),
             LLMMessage(role="user", content=prompt),

@@ -65,6 +65,8 @@ class QuickEvalCreate(BaseModel):
     model: str | None = Field(default=None, description="Override DEFAULT_MODEL")
     testcase_count: int = Field(default=10, ge=1, le=50, description="Number of test cases to run")
     seed: int = Field(default=7)
+    agent_endpoint_url: str | None = Field(default=None, description="OpenAI-compatible chat endpoint to test (e.g. https://your-api.com/v1)")
+    agent_endpoint_key: str | None = Field(default=None, description="API key for the agent endpoint")
 
 
 @router.post("/quick-eval", dependencies=[Depends(verify_admin_key)])
@@ -100,6 +102,8 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         seed=payload.seed,
         status="queued",
         summary={"testcase_ids": testcase_ids},
+        agent_endpoint_url=payload.agent_endpoint_url,
+        agent_endpoint_key=payload.agent_endpoint_key,
     )
     db.add(run)
     db.commit()

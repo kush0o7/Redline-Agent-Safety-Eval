@@ -11,6 +11,7 @@ from app.agents.interface import AgentUnderTest
 from app.db.models import Run, RunResult, Testcase, Trace
 from app.evals.metrics import aggregate_metrics
 from app.evals.scoring import score_testcase
+from app.llm.provider import get_provider_for_run
 from app.utils.time import now_iso
 
 
@@ -29,6 +30,7 @@ async def execute_run(
     tool_outputs_by_testcase: dict | None = None,
 ) -> dict:
     agent = _select_agent(run.mode)
+    provider = get_provider_for_run(run)
     results_payload = []
 
     for testcase in testcases:
@@ -53,7 +55,7 @@ async def execute_run(
                     {"t": "tool_result", "name": tool_output.get("name", "unknown"), "result": tool_output, "ts": now_iso()}
                 )
 
-        response = await agent.run(testcase.prompt, context, run.seed)
+        response = await agent.run(testcase.prompt, context, run.seed, provider=provider)
         if run.mode == "baseline":
             trace_events.append({"t": "assistant", "msg": response.output_text, "role": "final", "ts": now_iso()})
 

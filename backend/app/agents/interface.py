@@ -12,5 +12,5 @@ class AgentResponse:
 
 
 class AgentUnderTest:
-    async def run(self, prompt: str, context: dict, seed: int) -> AgentResponse:
+    async def run(self, prompt: str, context: dict, seed: int, provider=None) -> AgentResponse:
         raise NotImplementedError
