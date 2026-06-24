@@ -80,3 +80,16 @@ class Trace(Base):
     injection_detected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     run = relationship("Run", back_populates="traces")
+
+
+class AnalyticsEvent(Base):
+    __tablename__ = "analytics_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    event: Mapped[str] = mapped_column(Text, nullable=False)          # e.g. "run_completed"
+    model: Mapped[str | None] = mapped_column(Text)
+    tier: Mapped[str | None] = mapped_column(Text)
+    pass_rate: Mapped[float | None] = mapped_column(Float)
+    testcase_count: Mapped[int | None] = mapped_column(Integer)
+    user_email: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())

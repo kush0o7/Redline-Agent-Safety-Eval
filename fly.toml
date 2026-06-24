@@ -9,14 +9,14 @@ primary_region = "iad"
   # All secrets go via: fly secrets set KEY=value  (never commit real keys here)
 
 [processes]
-  app = "sh -c 'alembic -c app/db/alembic.ini upgrade head && python -m arq app.queue.worker.WorkerSettings & uvicorn app.main:app --host 0.0.0.0 --port 8000'"
+  app = "/app/start.sh"
 
 [http_service]
   internal_port     = 8000
   force_https       = true
-  auto_stop_machines  = true
+  auto_stop_machines  = false
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   processes = ["app"]
 
@@ -26,6 +26,6 @@ primary_region = "iad"
     soft_limit = 20
 
 [[vm]]
-  memory   = "512mb"
+  memory   = "1gb"
   cpu_kind = "shared"
   cpus     = 1

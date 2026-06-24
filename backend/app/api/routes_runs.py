@@ -16,6 +16,9 @@ from app.utils.time import now_iso
 
 router = APIRouter(dependencies=[Depends(verify_admin_key)])
 
+# Separate router with no auth dependency — needed for SSE (EventSource can't send headers)
+stream_router = APIRouter()
+
 
 class RunCreate(BaseModel):
     testcase_ids: list[str] = Field(default_factory=list)
@@ -151,7 +154,7 @@ def get_run(project_id: str, run_id: str, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/projects/{project_id}/runs/{run_id}/stream", dependencies=[])
+@stream_router.get("/projects/{project_id}/runs/{run_id}/stream")
 async def stream_run(
     project_id: str,
     run_id: str,

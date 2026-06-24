@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -8,7 +9,7 @@ from app.agents.baseline_agent import BaselineAgent
 from app.agents.debate_agent import DebateAgent
 from app.agents.guardrails import detect_injection
 from app.agents.interface import AgentUnderTest
-from app.db.models import Run, RunResult, Testcase, Trace
+from app.db.models import AnalyticsEvent, Run, RunResult, Testcase, Trace
 from app.evals.metrics import aggregate_metrics
 from app.evals.scoring import score_testcase
 from app.llm.provider import get_provider_for_run
@@ -55,7 +56,19 @@ async def execute_run(
                     {"t": "tool_result", "name": tool_output.get("name", "unknown"), "result": tool_output, "ts": now_iso()}
                 )
 
-        response = await agent.run(testcase.prompt, context, run.seed, provider=provider)
+        for attempt in range(4):
+            try:
+                response = await agent.run(testcase.prompt, context, run.seed, provider=provider)
+                break
+            except Exception as e:
+                if "rate_limit" in str(e).lower() or "ratelimit" in str(e).lower():
+                    wait = 15 * (attempt + 1)
+                    await asyncio.sleep(wait)
+                else:
+                    raise
+        else:
+            response = await agent.run(testcase.prompt, context, run.seed, provider=provider)
+
         if run.mode == "baseline":
             trace_events.append({"t": "assistant", "msg": response.output_text, "role": "final", "ts": now_iso()})
 
@@ -88,11 +101,21 @@ async def execute_run(
 
         results_payload.append({"passed": score.passed, "scores": score.scores})
 
+        # Pace requests: Groq free tier = 6000 TPM, each case ~900 tokens → need ~9s gap
+        await asyncio.sleep(12)
+
     summary = aggregate_metrics(results_payload)
     if isinstance(run.summary, dict) and run.summary.get("testcase_ids"):
         summary["testcase_ids"] = run.summary.get("testcase_ids")
     run.summary = summary
     run.finished_at = datetime.now(timezone.utc)
     run.status = "completed"
+    db.add(AnalyticsEvent(
+        event="run_completed",
+        model=run.llm_model,
+        tier=summary.get("tier"),
+        pass_rate=summary.get("pass_rate"),
+        testcase_count=len(testcases),
+    ))
     db.commit()
     return summary

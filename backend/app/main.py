@@ -14,7 +14,7 @@ from app.core.security import RateLimitMiddleware
 from app.api.routes_health import router as health_router
 from app.api.routes_evals import router as evals_router
 from app.api.routes_testcases import router as testcases_router
-from app.api.routes_runs import router as runs_router
+from app.api.routes_runs import router as runs_router, stream_router
 from app.api.routes_public import router as public_router
 
 
@@ -44,6 +44,7 @@ app.add_middleware(RateLimitMiddleware, per_minute=settings.rate_limit_per_minut
 app.include_router(health_router)
 app.include_router(evals_router)
 app.include_router(testcases_router)
+app.include_router(stream_router)  # stream before runs so /stream isn't parsed as a run_id
 app.include_router(runs_router)
 app.include_router(public_router)
 

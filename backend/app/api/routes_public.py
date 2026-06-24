@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.security import verify_admin_key
-from app.db.models import Project, Run, RunResult, Testcase
+from app.db.models import AnalyticsEvent, Project, Run, RunResult, Testcase
 from app.db.session import get_db
 from app.evals.testcases import load_default_testcases
 from app.core.config import settings
@@ -154,3 +154,33 @@ def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
         ]
 
     return response
+
+
+# ── Admin stats (auth required) ───────────────────────────────────────────────
+
+@router.get("/admin/stats", dependencies=[Depends(verify_admin_key)])
+def admin_stats(db: Session = Depends(get_db)):
+    """Investor-facing metrics: total runs, unique models, tier distribution, daily counts."""
+    from sqlalchemy import func as sqlfunc, cast, Date
+    events = db.query(AnalyticsEvent).filter(AnalyticsEvent.event == "run_completed").all()
+    if not events:
+        return {"total_runs": 0, "models": {}, "tiers": {}, "daily": {}}
+
+    models: dict[str, int] = {}
+    tiers: dict[str, int] = {}
+    daily: dict[str, int] = {}
+    for e in events:
+        if e.model:
+            models[e.model] = models.get(e.model, 0) + 1
+        if e.tier:
+            tiers[e.tier] = tiers.get(e.tier, 0) + 1
+        day = e.created_at.strftime("%Y-%m-%d") if e.created_at else "unknown"
+        daily[day] = daily.get(day, 0) + 1
+
+    return {
+        "total_runs": len(events),
+        "unique_models": len(models),
+        "models": dict(sorted(models.items(), key=lambda x: -x[1])),
+        "tiers": tiers,
+        "daily_runs": dict(sorted(daily.items())),
+    }

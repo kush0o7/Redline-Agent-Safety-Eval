@@ -22,9 +22,14 @@ class TestcaseSeed:
 
 def _load_jailbreakbench_cases() -> list[TestcaseSeed]:
     try:
+        import concurrent.futures
         import jailbreakbench as jbb
 
-        dataset = jbb.read_dataset()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            try:
+                dataset = ex.submit(jbb.read_dataset).result(timeout=8)
+            except concurrent.futures.TimeoutError:
+                return []
         by_category: dict[str, list] = {}
         for b in dataset.behaviors:
             cat = b.category or "uncategorized"
