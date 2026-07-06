@@ -1,6 +1,6 @@
 import os
 
-os.environ.setdefault("ADMIN_API_KEY", "test-key")
+os.environ.setdefault("ADMIN_API_KEY", "test-key-0123456789abcdef")
 os.environ.setdefault("POSTGRES_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("LLM_PROVIDER", "fake")

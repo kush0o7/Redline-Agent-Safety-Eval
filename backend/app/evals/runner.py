@@ -102,8 +102,9 @@ async def execute_run(
 
         results_payload.append({"passed": score.passed, "scores": score.scores})
 
-        # Pace requests: Groq free tier = 6000 TPM, each case ~900 tokens → need ~9s gap
-        await asyncio.sleep(12)
+        # Only pace for Groq (6000 TPM limit). Custom agent endpoints don't need this.
+        if not run.agent_endpoint_url:
+            await asyncio.sleep(12)
 
     summary = aggregate_metrics(results_payload)
     if isinstance(run.summary, dict) and run.summary.get("testcase_ids"):

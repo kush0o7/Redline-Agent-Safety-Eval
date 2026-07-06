@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 import secrets
 from datetime import datetime, timezone, timedelta
 
-from app.core.security import validate_agent_url, verify_admin_key
+from app.core.security import constant_time_key_match, validate_agent_url, verify_admin_key
 from app.db.models import AnalyticsEvent, InviteToken, Project, Run, RunResult, Testcase
 from app.db.session import get_db
 from app.evals.testcases import load_default_testcases
@@ -68,14 +68,23 @@ def _verify_eval_access(
     db: Session = Depends(get_db),
 ):
     """Accept either the admin key OR a valid invite token."""
-    if x_admin_key == settings.admin_api_key:
+    if constant_time_key_match(x_admin_key):
         return
     if x_invite_token:
-        row = db.get(InviteToken, x_invite_token)
+        # Atomic decrement-and-check: guard against concurrent requests racing the
+        # same near-exhausted invite past its max_uses limit (TOCTOU).
         now = datetime.now(timezone.utc)
-        if row and row.used_count < row.max_uses and (row.expires_at is None or row.expires_at > now):
-            row.used_count += 1
-            db.commit()
+        updated = (
+            db.query(InviteToken)
+            .filter(
+                InviteToken.token == x_invite_token,
+                InviteToken.used_count < InviteToken.max_uses,
+                (InviteToken.expires_at.is_(None)) | (InviteToken.expires_at > now),
+            )
+            .update({InviteToken.used_count: InviteToken.used_count + 1}, synchronize_session=False)
+        )
+        db.commit()
+        if updated:
             return
     raise HTTPException(status_code=401, detail="Unauthorized")
 

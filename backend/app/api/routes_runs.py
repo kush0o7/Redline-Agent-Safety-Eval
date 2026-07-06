@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -9,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import verify_admin_key
+from app.core.security import constant_time_key_match, verify_admin_key
 from app.db.models import Project, Run, RunResult, Testcase, Trace
 from app.db.session import get_db
 from app.utils.time import now_iso
@@ -162,11 +163,15 @@ async def stream_run(
     token: str | None = None,
     x_admin_key: str | None = None,
 ):
-    from app.core.config import settings
     run_check = db.get(Run, run_id)
     # Accept either the per-run stream token (public, single-use-safe) or admin key
-    valid_token = run_check and run_check.stream_token and token == run_check.stream_token
-    valid_admin = x_admin_key == settings.admin_api_key
+    valid_token = bool(
+        run_check
+        and run_check.stream_token
+        and token
+        and secrets.compare_digest(token, run_check.stream_token)
+    )
+    valid_admin = constant_time_key_match(x_admin_key)
     if not valid_token and not valid_admin:
         raise HTTPException(status_code=401, detail="Unauthorized")
     """SSE endpoint — streams run status every second until completed or failed."""

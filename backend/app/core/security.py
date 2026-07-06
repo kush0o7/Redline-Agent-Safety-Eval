@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ipaddress
+import secrets
+import socket
 import time
 from collections import defaultdict, deque
 from urllib.parse import urlparse
@@ -12,8 +14,15 @@ from starlette.responses import JSONResponse
 from app.core.config import settings
 
 
+def constant_time_key_match(candidate: str | None) -> bool:
+    """Compare a presented key to the admin key without leaking length/content via timing."""
+    if not candidate:
+        return False
+    return secrets.compare_digest(candidate, settings.admin_api_key)
+
+
 async def verify_admin_key(x_admin_key: str | None = Header(default=None)) -> None:
-    if not x_admin_key or x_admin_key != settings.admin_api_key:
+    if not constant_time_key_match(x_admin_key):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -49,13 +58,29 @@ def validate_agent_url(url: str) -> str:
     if host in _BLOCKED_HOSTS:
         raise HTTPException(status_code=400, detail="Agent endpoint URL points to a blocked host")
 
+    # Collect every IP this host could point at. If it's a literal IP, that's the
+    # only one; if it's a hostname, resolve it so a name that maps to an internal
+    # address (cloud metadata, RFC1918, loopback) is rejected — not just raw IPs.
+    candidate_ips: list[ipaddress._BaseAddress] = []
     try:
-        addr = ipaddress.ip_address(host)
+        candidate_ips.append(ipaddress.ip_address(host))
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except socket.gaierror:
+            raise HTTPException(status_code=400, detail="Agent endpoint URL host could not be resolved")
+        for info in infos:
+            try:
+                candidate_ips.append(ipaddress.ip_address(info[4][0]))
+            except ValueError:
+                continue
+
+    for addr in candidate_ips:
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast or addr.is_unspecified:
+            raise HTTPException(status_code=400, detail="Agent endpoint URL points to a private/internal address")
         for net in _BLOCKED_NETWORKS:
             if addr in net:
-                raise HTTPException(status_code=400, detail="Agent endpoint URL points to a private/internal IP")
-    except ValueError:
-        pass  # hostname, not a raw IP — DNS resolution happens at call time, can't fully prevent but blocks obvious cases
+                raise HTTPException(status_code=400, detail="Agent endpoint URL points to a private/internal address")
 
     return url
 

@@ -10,7 +10,7 @@ def _run_task(run_id: str) -> None:
 
 
 def test_api_smoke(client, db):
-    headers = {"X-Admin-Key": "test-key"}
+    headers = {"X-Admin-Key": "test-key-0123456789abcdef"}
 
     resp = client.post("/projects", json={"name": "demo"}, headers=headers)
     assert resp.status_code == 200
@@ -47,7 +47,7 @@ def test_api_smoke(client, db):
 
 
 def test_compare_runs_endpoint(client, db):
-    headers = {"X-Admin-Key": "test-key"}
+    headers = {"X-Admin-Key": "test-key-0123456789abcdef"}
 
     resp = client.post("/projects", json={"name": "compare-demo"}, headers=headers)
     assert resp.status_code == 200

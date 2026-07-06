@@ -1,5 +1,8 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, model_validator
+
+
+_WEAK_ADMIN_KEYS = {"change-me", "changeme", "change", "admin", "password", "secret", ""}
 
 
 class Settings(BaseSettings):
@@ -26,6 +29,19 @@ class Settings(BaseSettings):
     dev_fake_judge: bool = Field(False, validation_alias="DEV_FAKE_JUDGE")
     groq_api_key: str | None = Field(default=None, validation_alias="GROQ_API_KEY")
     public_url: str = Field("https://redline-safety.fly.dev", validation_alias="PUBLIC_URL")
+
+    @model_validator(mode="after")
+    def _reject_weak_admin_key(self) -> "Settings":
+        # Fail closed: refuse to boot unless a real admin key is set. Tests/dev that
+        # use the fake provider still need a non-default key (set in conftest.py).
+        if self.admin_api_key.strip().lower() in _WEAK_ADMIN_KEYS:
+            raise ValueError(
+                "ADMIN_API_KEY is unset or a well-known default. Set a strong, unique "
+                "value (e.g. `openssl rand -hex 32`) before starting Redline."
+            )
+        if len(self.admin_api_key) < 16:
+            raise ValueError("ADMIN_API_KEY must be at least 16 characters.")
+        return self
 
 
 settings = Settings()

@@ -298,7 +298,7 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
         if (payload.status === "completed" || payload.status === "failed") { es.close(); resolve(payload.status); }
       };
       es.onerror = () => { es.close(); resolve("error"); };
-      setTimeout(() => { es.close(); resolve("timeout"); }, 300_000);
+      setTimeout(() => { es.close(); resolve("timeout"); }, 600_000);
     });
 
     if (finalStatus !== "completed") {

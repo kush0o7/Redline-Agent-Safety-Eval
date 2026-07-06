@@ -34,9 +34,18 @@ class OpenAIProvider(BaseProvider):
             "seed": seed,
         }
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        async with httpx.AsyncClient(timeout=30) as client:
+        if "openrouter" in self.base_url:
+            headers["HTTP-Referer"] = "https://redline-safety.fly.dev"
+            headers["X-Title"] = "Redline Safety Evals"
+        async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
-            resp.raise_for_status()
+            if not resp.is_success:
+                body = resp.text[:500]
+                raise httpx.HTTPStatusError(
+                    f"HTTP {resp.status_code} from {self.base_url}: {body}",
+                    request=resp.request,
+                    response=resp,
+                )
             data = resp.json()
             return data["choices"][0]["message"]["content"]
 
