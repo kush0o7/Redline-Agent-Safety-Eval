@@ -161,7 +161,38 @@ function renderResults(data) {
 
   document.getElementById("mainProgressBar").style.cssText = `width:${pct}%;background:${cfg.barColor}`;
 
-  // Metrics
+  // Confidence interval
+  const ci = summary.confidence_interval;
+  const ciEl = document.getElementById("confidenceInterval");
+  if (ciEl && ci) {
+    const ciLo = Math.round(ci.low * 100);
+    const ciHi = Math.round(ci.high * 100);
+    ciEl.textContent = `95% CI: ${ciLo}–${ciHi}% (n=${ci.n})`;
+    ciEl.title = "Wilson score confidence interval. Run 50+ cases for tighter bounds.";
+  }
+  if (summary.sample_size_warning) {
+    const warn = document.getElementById("sampleWarn");
+    if (warn) warn.classList.remove("hidden");
+  }
+
+  // Per-category breakdown
+  const categories = summary.categories || {};
+  const catGrid = document.getElementById("categoryGrid");
+  if (catGrid && Object.keys(categories).length > 0) {
+    document.getElementById("categoryCard")?.style.setProperty("display", "block");
+    catGrid.innerHTML = Object.entries(categories).sort((a,b)=>a[0].localeCompare(b[0])).map(([cat, c]) => {
+      const cpct = Math.round((c.pass_rate ?? 0) * 100);
+      const color = metricColor(cpct);
+      return `<div class="metric-row">
+        <span class="metric-icon">${cpct >= 75 ? "✅" : cpct >= 60 ? "⚠️" : "❌"}</span>
+        <span class="metric-name">${esc(cat)} <span style="color:var(--muted);font-size:11px">(${c.pass}/${c.total})</span></span>
+        <span class="metric-pct" style="color:${color}">${cpct}%</span>
+      </div>
+      <div class="metric-bar-wrap"><div class="metric-bar-fill" style="width:${cpct}%;background:${color}"></div></div>`;
+    }).join("");
+  }
+
+  // Metric breakdown
   const metrics = summary.metrics || {};
   const grid = document.getElementById("metricsGrid");
   grid.innerHTML = "";
@@ -171,29 +202,51 @@ function renderResults(data) {
     const mpct  = Math.round((m.pass_rate ?? 0) * 100);
     const icon  = mpct >= 75 ? "✅" : (mpct >= 60 ? "⚠️" : "❌");
     const color = metricColor(mpct);
+    const ciStr = m.ci_low != null ? ` <span style="color:var(--muted);font-size:11px">${Math.round(m.ci_low*100)}–${Math.round(m.ci_high*100)}%</span>` : "";
     grid.innerHTML += `
       <div class="metric-row">
         <span class="metric-icon">${icon}</span>
         <span class="metric-name">${label}</span>
-        <span class="metric-pct" style="color:${color}">${mpct}%</span>
+        <span class="metric-pct" style="color:${color}">${mpct}%${ciStr}</span>
       </div>
       <div class="metric-bar-wrap">
         <div class="metric-bar-fill" style="width:${mpct}%;background:${color}"></div>
       </div>`;
   }
 
-  // Failures
+  // Failures — full detail with prompt, response, judge reasoning
   const results  = data.results || [];
   const failures = results.filter(r => !r.passed);
   if (failures.length > 0) {
     document.getElementById("failuresCard").classList.remove("hidden");
     document.getElementById("failureCount").textContent = String(failures.length);
     const list = document.getElementById("failuresList");
-    list.innerHTML = failures.slice(0, 8).map(r => {
-      const bad = Object.entries(r.scores || {}).filter(([, v]) => v === false).map(([k]) => esc(k)).join(", ");
-      return `<div class="failure-item"><div class="failure-id">${esc(r.testcase_id)}</div><div class="failure-metrics">Failed: ${bad || "unknown"}</div></div>`;
+    list.innerHTML = failures.map(r => {
+      const bad = Object.entries(r.scores || {}).filter(([, v]) => v === false).map(([k]) => esc(METRIC_LABELS[k] || k)).join(", ");
+      const jr = r.judge_reasoning || {};
+      const reasoning = jr.refusal_reasoning || jr.hallucination_reasoning || "";
+      return `<details class="failure-item">
+        <summary>
+          <span class="failure-type">${esc(r.testcase_type || "unknown")}</span>
+          <span class="failure-name">${esc(r.testcase_name || r.testcase_id)}</span>
+          <span class="failure-metrics">Failed: ${bad || "unknown"}</span>
+        </summary>
+        <div class="failure-detail">
+          <div class="detail-block">
+            <div class="detail-label">Prompt</div>
+            <div class="detail-text">${esc(r.prompt || "")}</div>
+          </div>
+          <div class="detail-block">
+            <div class="detail-label">Model response</div>
+            <div class="detail-text">${esc(r.response || "")}</div>
+          </div>
+          ${reasoning ? `<div class="detail-block">
+            <div class="detail-label">Judge reasoning</div>
+            <div class="detail-text detail-reasoning">${esc(reasoning)}</div>
+          </div>` : ""}
+        </div>
+      </details>`;
     }).join("");
-    if (failures.length > 8) list.innerHTML += `<p class="hint" style="margin-top:8px">…and ${failures.length - 8} more</p>`;
   }
 
   document.getElementById("runMeta").textContent =

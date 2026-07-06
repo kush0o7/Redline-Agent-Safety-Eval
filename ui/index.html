@@ -59,6 +59,12 @@
         <p class="subtitle">Stress-test your AI agent against 75+ adversarial prompts. See how you rank.</p>
       </header>
 
+      <nav style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+        <a href="/ui/" style="color:var(--accent);text-decoration:none;font-size:14px;font-weight:500;">Evaluate</a>
+        <a href="/ui/leaderboard.html" style="color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;">Leaderboard</a>
+        <a href="/ui/methodology.html" style="color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;">Methodology</a>
+      </nav>
+
       <!-- Admin key (hidden by default) -->
       <section id="adminSection" class="card admin-section">
         <div class="card-header">
@@ -180,11 +186,20 @@
           <div class="progress-bar-track" style="margin-top: 14px;">
             <div id="mainProgressBar" class="progress-bar-fill" style="width: 0%"></div>
           </div>
+          <div style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <span id="confidenceInterval" style="font-size:12px;color:var(--muted);"></span>
+            <span id="sampleWarn" class="hidden" style="font-size:12px;color:#eab308;">⚠️ Small sample — run 30+ cases for reliable results</span>
+          </div>
           <div id="yourRank" style="margin-top:12px;font-size:13px;color:var(--muted);"></div>
           <div class="share-row">
             <button class="btn-share" onclick="shareResult()">🔗 Share my score</button>
             <button class="btn-share" onclick="scrollToRun()">🔁 Run again</button>
           </div>
+        </div>
+
+        <div class="card" id="categoryCard" style="display:none">
+          <h2>By category</h2>
+          <div id="categoryGrid" class="metrics-grid"></div>
         </div>
 
         <div class="card">
@@ -194,6 +209,7 @@
 
         <div id="failuresCard" class="card hidden">
           <h2>Failures <span id="failureCount" class="badge badge-red"></span></h2>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Click each failure to see the prompt, model response, and judge reasoning.</p>
           <div id="failuresList" class="failures-list"></div>
         </div>
 

@@ -103,6 +103,7 @@ async def execute_run(
             raw_output=response.output_text,
             refusal=response.refusal,
             confidence=response.confidence,
+            judge_reasoning=score.judge_reasoning,
         )
         trace_row = Trace(
             run_id=run.id,
@@ -113,7 +114,7 @@ async def execute_run(
         db.add(result_row)
         db.add(trace_row)
 
-        results_payload.append({"passed": score.passed, "scores": score.scores})
+        results_payload.append({"passed": score.passed, "scores": score.scores, "type": testcase.type})
 
         # Commit per testcase so results survive a worker crash and the SSE
         # stream can show live progress.

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.security import constant_time_key_match, validate_agent_url, verify_admin_key
+from app.core.security import constant_time_key_match, decrypt_field, encrypt_field, validate_agent_url, verify_admin_key
 from app.db.models import AnalyticsEvent, InviteToken, Project, Run, RunResult, Testcase
 from app.db.session import get_db
 from app.evals.testcases import TestcaseSeed, build_default_testcases
@@ -200,7 +200,7 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         status="queued",
         summary={"testcase_ids": testcase_ids},
         agent_endpoint_url=payload.agent_endpoint_url,
-        agent_endpoint_key=payload.agent_endpoint_key,
+        agent_endpoint_key=encrypt_field(payload.agent_endpoint_key),
         stream_token=stream_token,
     )
     db.add(run)
@@ -239,14 +239,23 @@ def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
 
     if run.status == "completed":
         rows = db.query(RunResult).filter(RunResult.run_id == run.id).all()
+        testcases = db.query(Testcase).filter(
+            Testcase.id.in_([r.testcase_id for r in rows])
+        ).all()
+        tc_map = {str(tc.id): tc for tc in testcases}
         pass_rate = run.summary.get("pass_rate") if run.summary else None
         tier_label, _ = score_tier(pass_rate)
         response["tier"] = tier_label
         response["results"] = [
             {
                 "testcase_id": str(r.testcase_id),
+                "testcase_name": tc_map[str(r.testcase_id)].name if str(r.testcase_id) in tc_map else None,
+                "testcase_type": tc_map[str(r.testcase_id)].type if str(r.testcase_id) in tc_map else None,
+                "prompt": tc_map[str(r.testcase_id)].prompt if str(r.testcase_id) in tc_map else None,
+                "response": r.raw_output,
                 "passed": r.passed,
                 "scores": r.scores,
+                "judge_reasoning": r.judge_reasoning,
             }
             for r in rows
         ]

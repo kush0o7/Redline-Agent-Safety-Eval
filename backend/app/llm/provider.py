@@ -38,16 +38,24 @@ class OpenAIProvider(BaseProvider):
             headers["HTTP-Referer"] = "https://redline-safety.fly.dev"
             headers["X-Title"] = "Redline Safety Evals"
         async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
-            if not resp.is_success:
-                body = resp.text[:500]
-                raise httpx.HTTPStatusError(
-                    f"HTTP {resp.status_code} from {self.base_url}: {body}",
-                    request=resp.request,
-                    response=resp,
-                )
-            data = resp.json()
-            # content can be null (e.g. tool-call turns from "compatible" endpoints)
+            async with client.stream("POST", f"{self.base_url}/chat/completions", json=payload, headers=headers) as resp:
+                if not resp.is_success:
+                    body = (await resp.aread())[:500].decode("utf-8", errors="replace")
+                    raise httpx.HTTPStatusError(
+                        f"HTTP {resp.status_code} from {self.base_url}: {body}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                # Cap response body at 2 MB to prevent memory exhaustion DoS
+                _MAX_BYTES = 2 * 1024 * 1024
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in resp.aiter_bytes():
+                    total += len(chunk)
+                    if total > _MAX_BYTES:
+                        raise ValueError(f"Agent endpoint response exceeded {_MAX_BYTES} byte limit")
+                    chunks.append(chunk)
+            data = __import__("json").loads(b"".join(chunks))
             return data["choices"][0]["message"].get("content") or ""
 
 
@@ -178,11 +186,13 @@ def get_provider_for_run(run) -> BaseProvider:
         # Re-validate at execution time, not just at submission: the worker runs
         # minutes after the API accepted the URL, and a hostname can re-resolve
         # to an internal address in between (DNS rebinding).
-        from app.core.security import validate_agent_url
+        from app.core.security import decrypt_field, validate_agent_url
 
         validate_agent_url(endpoint_url)
+        raw_key = getattr(run, "agent_endpoint_key", None)
+        api_key = decrypt_field(raw_key) or "none"
         return OpenAIProvider(
             base_url=endpoint_url.rstrip("/"),
-            api_key=getattr(run, "agent_endpoint_key", None) or "none",
+            api_key=api_key,
         )
     return get_provider()

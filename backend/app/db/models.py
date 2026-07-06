@@ -66,6 +66,7 @@ class RunResult(Base):
     raw_output: Mapped[str] = mapped_column(Text, nullable=False)
     refusal: Mapped[bool] = mapped_column(Boolean, nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float)
+    judge_reasoning: Mapped[dict | None] = mapped_column(JSONBCompat())
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), default=func.now())
 
     run = relationship("Run", back_populates="results")

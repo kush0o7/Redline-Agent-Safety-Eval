@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     job_timeout_seconds: int = Field(3600, validation_alias="JOB_TIMEOUT_SECONDS")
     # Max queued jobs before /quick-eval returns 503.
     max_queued_jobs: int = Field(20, validation_alias="MAX_QUEUED_JOBS")
+    # Fernet key for encrypting agent_endpoint_key at rest (base64url, 32 bytes).
+    # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # If unset, keys are stored plaintext (backwards-compatible — set this for production).
+    field_encryption_key: str | None = Field(default=None, validation_alias="FIELD_ENCRYPTION_KEY")
 
     @model_validator(mode="after")
     def _reject_weak_admin_key(self) -> "Settings":

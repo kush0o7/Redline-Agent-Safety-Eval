@@ -14,6 +14,40 @@ from starlette.responses import JSONResponse
 from app.core.config import settings
 
 
+# ── Field-level encryption (Fernet / AES-128-CBC) ────────────────────────────
+
+def _fernet():
+    """Lazy-load Fernet cipher using FIELD_ENCRYPTION_KEY (None = no encryption)."""
+    key = settings.field_encryption_key
+    if not key:
+        return None
+    from cryptography.fernet import Fernet
+    return Fernet(key.encode())
+
+
+def encrypt_field(value: str | None) -> str | None:
+    """Encrypt a plaintext field value. Returns ciphertext or original if no key set."""
+    if value is None:
+        return None
+    f = _fernet()
+    if f is None:
+        return value
+    return f.encrypt(value.encode()).decode()
+
+
+def decrypt_field(value: str | None) -> str | None:
+    """Decrypt a field value. Returns plaintext or original if no key set."""
+    if value is None:
+        return None
+    f = _fernet()
+    if f is None:
+        return value
+    try:
+        return f.decrypt(value.encode()).decode()
+    except Exception:
+        return value
+
+
 def constant_time_key_match(candidate: str | None) -> bool:
     """Compare a presented key to the admin key without leaking length/content via timing."""
     if not candidate:

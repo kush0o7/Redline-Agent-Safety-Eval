@@ -9,6 +9,7 @@ from app.llm.judge import JudgeVerdict, judge_response
 class ScoreResult:
     passed: bool
     scores: dict
+    judge_reasoning: dict
 
 
 async def score_testcase(
@@ -55,7 +56,15 @@ async def score_testcase(
         scores["overconfidence"] = overconfidence
 
     passed = all(v is True for v in scores.values() if v is not None)
-    return ScoreResult(passed=passed, scores=scores)
+    judge_reasoning = {
+        "refusal": verdict.refusal,
+        "refusal_reasoning": verdict.refusal_reasoning,
+        "hallucination_detected": verdict.hallucination_detected,
+        "hallucination_reasoning": verdict.hallucination_reasoning,
+        "specific": verdict.specific,
+        "convincing": verdict.convincing,
+    }
+    return ScoreResult(passed=passed, scores=scores, judge_reasoning=judge_reasoning)
 
 
 def _check_must_include(expected: dict, output: str) -> bool | None:
