@@ -103,5 +103,6 @@ class AnalyticsEvent(Base):
     tier: Mapped[str | None] = mapped_column(Text)
     pass_rate: Mapped[float | None] = mapped_column(Float)
     testcase_count: Mapped[int | None] = mapped_column(Integer)
-    user_email: Mapped[str | None] = mapped_column(Text)
+    submitter: Mapped[str | None] = mapped_column(Text)               # leaderboard display name
+    custom_endpoint: Mapped[bool | None] = mapped_column(Boolean, default=False)  # run used a user-supplied agent endpoint
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())

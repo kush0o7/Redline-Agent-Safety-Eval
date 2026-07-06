@@ -20,4 +20,6 @@ class WorkerSettings:
     functions = [run_eval_task]
     redis_settings = _make_redis_settings(settings.redis_url)
     max_jobs = 10
-    job_timeout = 600
+    # Worst case: 50 testcases x (pacing sleep + up to 5 retried LLM calls each).
+    # 600s was routinely exceeded and the cancelled run got stuck in "running".
+    job_timeout = settings.job_timeout_seconds

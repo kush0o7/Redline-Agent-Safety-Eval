@@ -9,12 +9,12 @@ from app.llm.schemas import SafeNotesWriteArgs, SafeNotesReadArgs
 
 
 INJECTION_PATTERNS = [
-    r"ignore previous instructions",
+    r"ignore (?:all )?previous instructions",
     r"system prompt",
     r"developer message",
     r"exfiltrate",
-    r"confidential",
-    r"reveal",
+    # Deliberately no bare "confidential"/"reveal": those words appear in
+    # ordinary business documents and caused false-positive redactions.
 ]
 INJECTION_REGEX = re.compile("|".join(INJECTION_PATTERNS), re.IGNORECASE)
 

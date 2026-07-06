@@ -27,3 +27,17 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Project name already exists")
     db.refresh(project)
     return {"id": str(project.id), "name": project.name, "created_at": project.created_at.isoformat()}
+
+
+@router.get("/projects")
+def list_projects(limit: int = 100, db: Session = Depends(get_db)):
+    rows = (
+        db.query(Project)
+        .order_by(Project.created_at.desc())
+        .limit(min(limit, 500))
+        .all()
+    )
+    return [
+        {"id": str(p.id), "name": p.name, "created_at": p.created_at.isoformat()}
+        for p in rows
+    ]

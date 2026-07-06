@@ -51,12 +51,22 @@ async def run_eval_task(ctx: dict, run_id: str, submitter: str | None = None) ->
 
         await execute_run(db, run, testcases, submitter=submitter)
 
-    except Exception as exc:  # noqa: BLE001
+    except BaseException as exc:  # noqa: BLE001 — must catch CancelledError too:
+        # arq cancels the task coroutine on job timeout, and CancelledError is a
+        # BaseException. Catching only Exception left the run stuck in "running"
+        # forever (and every SSE viewer polling it indefinitely).
         logger.exception("run_eval_task failed for run_id=%s", run_id)
+        db.rollback()
         run = db.get(Run, run_id)
         if run:
+            prior = run.summary if isinstance(run.summary, dict) else {}
             run.status = "failed"
-            run.summary = {"error": _public_error(exc)}
+            run.summary = {
+                "error": _public_error(exc),
+                **({"testcase_ids": prior["testcase_ids"]} if prior.get("testcase_ids") else {}),
+            }
             db.commit()
+        if not isinstance(exc, Exception):
+            raise  # re-raise cancellation/system exit so arq sees it
     finally:
         db.close()

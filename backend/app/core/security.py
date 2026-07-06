@@ -18,7 +18,11 @@ def constant_time_key_match(candidate: str | None) -> bool:
     """Compare a presented key to the admin key without leaking length/content via timing."""
     if not candidate:
         return False
-    return secrets.compare_digest(candidate, settings.admin_api_key)
+    try:
+        return secrets.compare_digest(candidate, settings.admin_api_key)
+    except TypeError:
+        # compare_digest raises on non-ASCII input; treat as a failed match, not a 500
+        return False
 
 
 async def verify_admin_key(x_admin_key: str | None = Header(default=None)) -> None:
@@ -85,6 +89,23 @@ def validate_agent_url(url: str) -> str:
     return url
 
 
+def client_ip(request: Request) -> str:
+    """Best-effort real client IP.
+
+    Behind Fly's proxy the TCP peer is the edge proxy, so prefer Fly-Client-IP
+    (set by Fly, not spoofable through it), then the leftmost X-Forwarded-For hop
+    (only populated correctly when uvicorn runs with --proxy-headers), then the
+    raw socket peer.
+    """
+    fly_ip = request.headers.get("fly-client-ip")
+    if fly_ip:
+        return fly_ip.strip()
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Sliding-window rate limiter.
 
@@ -115,13 +136,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 del bucket[ip]
 
     async def dispatch(self, request: Request, call_next):
-        client_ip = request.client.host if request.client else "unknown"
+        ip = client_ip(request)
         now = time.time()
         self._cleanup(now)
 
         # Tight limit for eval endpoint
         if request.method == "POST" and request.url.path == "/quick-eval":
-            bucket = self.eval_requests[client_ip]
+            bucket = self.eval_requests[ip]
             while bucket and now - bucket[0] > self.EVAL_WINDOW:
                 bucket.popleft()
             if len(bucket) >= self.EVAL_LIMIT:
@@ -134,7 +155,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             bucket.append(now)
 
         # General rate limit for everything
-        bucket = self.requests[client_ip]
+        bucket = self.requests[ip]
         while bucket and now - bucket[0] > 60:
             bucket.popleft()
         if len(bucket) >= self.per_minute + self.burst:

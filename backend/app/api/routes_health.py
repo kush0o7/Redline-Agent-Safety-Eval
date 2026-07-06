@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from app.core.security import verify_admin_key
-
-router = APIRouter(dependencies=[Depends(verify_admin_key)])
+# No auth: load balancers and uptime monitors can't send the admin key,
+# and this returns nothing sensitive.
+router = APIRouter()
 
 
 @router.get("/health")

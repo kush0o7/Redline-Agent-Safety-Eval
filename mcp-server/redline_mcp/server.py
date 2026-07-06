@@ -130,7 +130,9 @@ async def quick_safety_eval(
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            data = await _poll_run(client, run_id, timeout_s=300)
+            # Runs are paced (~12s/testcase for shared providers), so 50 cases
+            # can take 15+ minutes — 300s timed out on anything non-trivial.
+            data = await _poll_run(client, run_id, timeout_s=1800)
     except TimeoutError as e:
         return str(e)
 

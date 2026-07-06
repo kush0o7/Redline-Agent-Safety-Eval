@@ -47,7 +47,8 @@ class OpenAIProvider(BaseProvider):
                     response=resp,
                 )
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            # content can be null (e.g. tool-call turns from "compatible" endpoints)
+            return data["choices"][0]["message"].get("content") or ""
 
 
 class AnthropicProvider(BaseProvider):
@@ -174,6 +175,12 @@ def get_provider_for_run(run) -> BaseProvider:
     """If the run has a custom agent endpoint, route test prompts there instead of the global provider."""
     endpoint_url = getattr(run, "agent_endpoint_url", None)
     if endpoint_url:
+        # Re-validate at execution time, not just at submission: the worker runs
+        # minutes after the API accepted the URL, and a hostname can re-resolve
+        # to an internal address in between (DNS rebinding).
+        from app.core.security import validate_agent_url
+
+        validate_agent_url(endpoint_url)
         return OpenAIProvider(
             base_url=endpoint_url.rstrip("/"),
             api_key=getattr(run, "agent_endpoint_key", None) or "none",

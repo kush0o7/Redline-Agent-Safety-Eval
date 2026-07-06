@@ -1,20 +1,27 @@
 """Public endpoints (no auth) and convenience endpoints (auth required)."""
 from __future__ import annotations
 
+import logging
+import random
+import secrets
+import uuid
+from datetime import datetime, timezone, timedelta
+
+from arq.constants import default_queue_name
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-
-import secrets
-from datetime import datetime, timezone, timedelta
 
 from app.core.security import constant_time_key_match, validate_agent_url, verify_admin_key
 from app.db.models import AnalyticsEvent, InviteToken, Project, Run, RunResult, Testcase
 from app.db.session import get_db
-from app.evals.testcases import load_default_testcases
+from app.evals.testcases import TestcaseSeed, build_default_testcases
 from app.core.config import settings
 from app.utils.tiers import score_tier
+
+logger = logging.getLogger("redline.public")
 
 router = APIRouter()
 
@@ -40,7 +47,6 @@ def project_badge(project_id: str, db: Session = Depends(get_db)):
     )
 
     if not latest_run or not latest_run.summary:
-        label, color = score_tier(None)
         return JSONResponse({
             "schemaVersion": 1,
             "label": "safety",
@@ -67,7 +73,13 @@ def _verify_eval_access(
     x_invite_token: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
-    """Accept either the admin key OR a valid invite token."""
+    """Accept either the admin key OR a valid invite token.
+
+    Only enforced when REQUIRE_EVAL_AUTH=true — the public dashboard runs with
+    open evals, relying on the per-IP rate limit and queue-depth guard instead.
+    """
+    if not settings.require_eval_auth:
+        return
     if constant_time_key_match(x_admin_key):
         return
     if x_invite_token:
@@ -100,39 +112,81 @@ class QuickEvalCreate(BaseModel):
     submitter: str | None = Field(default=None, max_length=60, description="Display name for the leaderboard")
 
 
-@router.post("/quick-eval")
+def _select_testcase_seeds(seeds: list[TestcaseSeed], count: int, seed: int) -> list[TestcaseSeed]:
+    """Deterministic, category-stratified sample.
+
+    A plain LIMIT with no ORDER BY picked arbitrary rows (Postgres guarantees no
+    order), so two "10-case" runs could test entirely different things. Instead:
+    shuffle within each type with a seeded RNG, then round-robin across types so
+    a small run still covers jailbreak/injection/hallucination/benign.
+    """
+    rnd = random.Random(seed)
+    by_type: dict[str, list[TestcaseSeed]] = {}
+    for s in sorted(seeds, key=lambda s: s.name):
+        by_type.setdefault(s.type, []).append(s)
+    for group in by_type.values():
+        rnd.shuffle(group)
+
+    selected: list[TestcaseSeed] = []
+    type_order = sorted(by_type)
+    while len(selected) < count and any(by_type.values()):
+        for t in type_order:
+            if by_type[t]:
+                selected.append(by_type[t].pop(0))
+                if len(selected) >= count:
+                    break
+    return selected
+
+
+@router.post("/quick-eval", dependencies=[Depends(_verify_eval_access)])
 async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = Depends(get_db)):
     """Create a project, seed test cases, and start a run in one call.
 
     Returns run_id + project_id immediately. Poll GET /quick-eval/{run_id} for results.
     """
-    import uuid as _uuid
-
     # SSRF guard — validate agent endpoint before doing anything
     if payload.agent_endpoint_url:
         validate_agent_url(payload.agent_endpoint_url)
 
-    # Queue depth guard — prevent cost abuse via job flooding
-    queue_info = await request.app.state.arq_pool.info()
-    if queue_info and queue_info.get("pending", 0) > 20:
+    # Queue depth guard — prevent cost abuse via job flooding. (arq_pool.info()
+    # was the Redis INFO command, which has no "pending" key — this checks the
+    # actual queue.)
+    try:
+        pending = await request.app.state.arq_pool.zcard(default_queue_name)
+    except Exception:  # noqa: BLE001 — a broken guard shouldn't take down evals
+        logger.warning("queue depth check failed", exc_info=True)
+        pending = 0
+    if pending > settings.max_queued_jobs:
         raise HTTPException(status_code=503, detail="Server is busy — too many evals queued. Try again shortly.")
 
-    name = payload.name or f"quick-eval-{_uuid.uuid4().hex[:8]}"
+    name = payload.name or f"quick-eval-{uuid.uuid4().hex[:8]}"
     project = Project(name=name)
     db.add(project)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Project name already exists")
     db.refresh(project)
 
-    total_seeded = load_default_testcases(db, project.id)
-    if total_seeded == 0:
+    seeds = _select_testcase_seeds(build_default_testcases(), payload.testcase_count, payload.seed)
+    if not seeds:
         raise HTTPException(status_code=500, detail="No test cases available to seed")
 
-    testcases = (
-        db.query(Testcase)
-        .filter(Testcase.project_id == project.id)
-        .limit(payload.testcase_count)
-        .all()
-    )
+    testcases = [
+        Testcase(
+            project_id=project.id,
+            type=s.type,
+            name=s.name,
+            prompt=s.prompt,
+            expected_behavior=s.expected_behavior,
+            severity=s.severity,
+            tags=s.tags,
+        )
+        for s in seeds
+    ]
+    db.add_all(testcases)
+    db.commit()
     testcase_ids = [str(tc.id) for tc in testcases]
 
     # Generate a per-run stream token so the admin key never appears in any URL
@@ -239,11 +293,14 @@ def leaderboard(db: Session = Depends(get_db)):
         if model not in seen or (e.pass_rate or 0) > seen[model]["pass_rate"]:
             seen[model] = {
                 "model": model,
-                "submitter": e.user_email or "anonymous",
+                "submitter": e.submitter or "anonymous",
                 "pass_rate": round(e.pass_rate or 0, 3),
                 "pass_pct": round((e.pass_rate or 0) * 100),
                 "tier": e.tier,
                 "testcase_count": e.testcase_count,
+                # Custom-endpoint runs are self-reported: the "model" name is
+                # whatever the submitter typed, so the UI flags them as unverified.
+                "custom_endpoint": bool(e.custom_endpoint),
                 "date": e.created_at.strftime("%Y-%m-%d") if e.created_at else None,
             }
     ranked = sorted(seen.values(), key=lambda x: -x["pass_rate"])

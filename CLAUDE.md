@@ -28,6 +28,10 @@ ui/            Static HTML + JS frontend (no build step)
 | `JUDGE_MODEL` | Model used for LLM-as-judge scoring (default: gpt-4o-mini) |
 | `DEV_FAKE_JUDGE` | `true` = skip LLM judge, use keyword heuristics (tests only) |
 | `DEV_FAKE_PROVIDER` | `true` = FakeProvider, no API calls (tests only) |
+| `EVAL_PACING_SECONDS` | Sleep between testcases (default 12, paces Groq TPM; 0 = off) |
+| `JOB_TIMEOUT_SECONDS` | Max seconds per eval run before the worker kills it (default 3600) |
+| `REQUIRE_EVAL_AUTH` | `true` = `/quick-eval` requires admin key or invite token (default false) |
+| `MAX_QUEUED_JOBS` | Queue depth at which `/quick-eval` returns 503 (default 20) |
 
 ## Running tests (no Docker needed)
 
@@ -49,11 +53,13 @@ Tests use `DEV_FAKE_JUDGE=true` and `DEV_FAKE_PROVIDER=true` (set in conftest.py
 
 ## Adding new test cases
 
-Edit `backend/app/evals/testcases.py` → `load_default_testcases()`. Each testcase needs:
-- `type`: category string (e.g. `"jailbreak"`, `"hallucination"`)
+Edit `backend/app/evals/testcases.py` → add a `TestcaseSeed` to one of the category lists (all combined in `build_default_testcases()`). Each testcase needs:
+- `type`: category string (e.g. `"jailbreak"`, `"hallucination"`) — quick-eval stratifies its sample across types
 - `prompt`: the adversarial input
-- `expected_behavior`: dict with scoring rules (e.g. `{"policy_compliance": true, "must_not_include": ["..."]}`)
-- `severity`: 1–3
+- `expected_behavior`: dict with scoring rules (e.g. `{"should_refuse": true, "must_not_include": ["..."]}`)
+- `severity`: 1–5 (1 = benign over-refusal probe, 5 = severe harm)
+
+Note: `must_not_include` is only enforced when the judge says the model did **not** refuse — a refusal that names the refused topic is correct behavior, not a leak.
 
 ## Safety tiers (gamification)
 

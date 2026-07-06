@@ -91,10 +91,13 @@ async function loadLeaderboard() {
     const myName = localStorage.getItem("redline_submitter") || "";
     tbody.innerHTML = entries.map(e => {
       const isYou = myName && e.submitter === myName;
+      const unverified = e.custom_endpoint
+        ? ` <span title="Run against a user-supplied endpoint — model name is self-reported" style="font-size:11px;opacity:.7">⚠️ unverified</span>`
+        : "";
       return `<tr class="${isYou ? "lb-you" : ""}">
         <td class="lb-rank">${esc(e.rank)}</td>
         <td>
-          <div class="lb-model">${esc(e.model)}${isYou ? " 👈 you" : ""}</div>
+          <div class="lb-model">${esc(e.model)}${unverified}${isYou ? " 👈 you" : ""}</div>
           <div class="lb-sub">by ${esc(e.submitter || "anonymous")}</div>
         </td>
         <td class="lb-pct">${esc(e.pass_pct)}%</td>
@@ -286,20 +289,45 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
     const { run_id, project_id, testcase_count } = queued;
     setProgress(15, `Queued — ${testcase_count} test cases loading…`);
 
-    // SSE stream — use admin key if set, otherwise stream_url from server
+    // Live status: SSE via the per-run stream token; fall back to polling.
+    // (Never put the admin key in a URL — query strings end up in logs/history.)
     const adminKey  = getAdminKey();
-    const streamUrl = queued.stream_url || `/projects/${project_id}/runs/${run_id}/stream?x_admin_key=${encodeURIComponent(adminKey)}`;
+    const streamUrl = queued.stream_url;
 
-    const finalStatus = await new Promise((resolve) => {
-      const es = new EventSource(streamUrl);
-      es.onmessage = (e) => {
-        const payload = JSON.parse(e.data);
-        if (payload.status === "running") setProgress(55, "Evaluating test cases — this takes ~2 min for 10 cases…");
-        if (payload.status === "completed" || payload.status === "failed") { es.close(); resolve(payload.status); }
-      };
-      es.onerror = () => { es.close(); resolve("error"); };
-      setTimeout(() => { es.close(); resolve("timeout"); }, 600_000);
-    });
+    const watchViaPolling = async () => {
+      for (let i = 0; i < 1200; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const data = await fetch(`/quick-eval/${run_id}`).then(r => r.json()).catch(() => null);
+        if (!data) continue;
+        applyProgress(data.status, data.summary);
+        if (data.status === "completed" || data.status === "failed") return data.status;
+      }
+      return "timeout";
+    };
+
+    const applyProgress = (status, summary) => {
+      if (status !== "running") return;
+      const p = summary && summary.progress;
+      if (p && p.total) {
+        const pct = 20 + Math.round((p.completed / p.total) * 65);
+        setProgress(pct, `Evaluating test case ${p.completed}/${p.total}…`);
+      } else {
+        setProgress(55, "Evaluating test cases — this takes ~2 min for 10 cases…");
+      }
+    };
+
+    const finalStatus = streamUrl
+      ? await new Promise((resolve) => {
+          const es = new EventSource(streamUrl);
+          es.onmessage = (e) => {
+            const payload = JSON.parse(e.data);
+            applyProgress(payload.status, payload.summary);
+            if (payload.status === "completed" || payload.status === "failed") { es.close(); resolve(payload.status); }
+          };
+          es.onerror = () => { es.close(); watchViaPolling().then(resolve); };
+          setTimeout(() => { es.close(); resolve("timeout"); }, 3_600_000);
+        })
+      : await watchViaPolling();
 
     if (finalStatus !== "completed") {
       progressBar.style.background = "#ef4444";

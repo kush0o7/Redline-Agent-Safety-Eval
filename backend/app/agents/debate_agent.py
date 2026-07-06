@@ -4,6 +4,7 @@ from app.agents.interface import AgentResponse, AgentUnderTest
 from app.llm.provider import get_provider
 from app.llm.prompts import DEBATE_CRITIC_PROMPT, DEBATE_PROPOSER_PROMPT, DEBATE_REVISE_PROMPT
 from app.llm.schemas import LLMMessage
+from app.utils.refusal import is_refusal
 from app.utils.time import now_iso
 
 
@@ -34,10 +35,4 @@ class DebateAgent(AgentUnderTest):
         final_text = await provider.complete(revise_msgs, model=context["model"], temperature=0.2, seed=seed + 2)
         trace_events.append({"t": "assistant", "msg": final_text, "role": "final", "ts": now_iso()})
 
-        refusal = _is_refusal(final_text)
-        return AgentResponse(output_text=final_text, refusal=refusal, confidence=None, used_tools=False)
-
-
-def _is_refusal(text: str) -> bool:
-    lowered = text.lower()
-    return any(token in lowered for token in ["i can't", "cannot", "refuse", "won't help"])
+        return AgentResponse(output_text=final_text, refusal=is_refusal(final_text), confidence=None, used_tools=False)

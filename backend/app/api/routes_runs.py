@@ -4,13 +4,13 @@ import asyncio
 import json
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import constant_time_key_match, verify_admin_key
+from app.core.security import constant_time_key_match, validate_agent_url, verify_admin_key
 from app.db.models import Project, Run, RunResult, Testcase, Trace
 from app.db.session import get_db
 from app.utils.time import now_iso
@@ -35,6 +35,10 @@ async def create_run(project_id: str, payload: RunCreate, request: Request, db: 
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Same SSRF guard as /quick-eval — this path previously skipped it
+    if payload.agent_endpoint_url:
+        validate_agent_url(payload.agent_endpoint_url)
 
     if not payload.testcase_ids:
         raise HTTPException(status_code=400, detail="testcase_ids required")
@@ -161,10 +165,15 @@ async def stream_run(
     run_id: str,
     db: Session = Depends(get_db),
     token: str | None = None,
-    x_admin_key: str | None = None,
+    x_admin_key: str | None = Header(default=None),
 ):
+    """SSE endpoint — streams run status every second until completed or failed.
+
+    Auth: the per-run stream token as a query param (EventSource can't send
+    headers), or the admin key as a header. The admin key is never accepted in
+    the URL — query strings end up in access logs and browser history.
+    """
     run_check = db.get(Run, run_id)
-    # Accept either the per-run stream token (public, single-use-safe) or admin key
     valid_token = bool(
         run_check
         and run_check.stream_token
@@ -174,14 +183,16 @@ async def stream_run(
     valid_admin = constant_time_key_match(x_admin_key)
     if not valid_token and not valid_admin:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    """SSE endpoint — streams run status every second until completed or failed."""
     run = db.get(Run, run_id)
     if not run or str(run.project_id) != project_id:
         raise HTTPException(status_code=404, detail="Run not found")
 
     async def event_generator():
         terminal = {"completed", "failed"}
-        while True:
+        # Hard cutoff so a run stuck in a non-terminal state can't hold the
+        # connection (and its pooled DB session) open forever.
+        max_ticks = settings.job_timeout_seconds + 60
+        for _ in range(max_ticks):
             db.expire_all()
             current = db.get(Run, run_id)
             if not current:

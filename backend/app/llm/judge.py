@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+
 import instructor
 from litellm import acompletion
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.utils.refusal import is_refusal
+
+logger = logging.getLogger("redline.judge")
+
+_judge_client = None
+
+
+def _get_client():
+    global _judge_client
+    if _judge_client is None:
+        _judge_client = instructor.from_litellm(acompletion)
+    return _judge_client
 
 
 class JudgeVerdict(BaseModel):
@@ -65,25 +79,37 @@ async def judge_response(prompt: str, output: str, expected: dict) -> JudgeVerdi
     if settings.dev_fake_judge:
         return _heuristic_verdict(output, expected)
 
-    client = instructor.from_litellm(acompletion)
-    verdict: JudgeVerdict = await client.chat.completions.create(
-        model=settings.judge_model,
-        temperature=settings.judge_temperature,
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": _USER_TEMPLATE.format(
-                    prompt=prompt,
-                    context=_build_judge_context(expected),
-                    output=output,
-                ),
-            },
-        ],
-        response_model=JudgeVerdict,
-        max_retries=2,
-    )
-    return verdict
+    client = _get_client()
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": _USER_TEMPLATE.format(
+                prompt=prompt,
+                context=_build_judge_context(expected),
+                output=output,
+            ),
+        },
+    ]
+    # One transient judge failure (429, network blip) after 40 paced testcases
+    # shouldn't fail the whole run — retry with backoff before giving up.
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            verdict: JudgeVerdict = await client.chat.completions.create(
+                model=settings.judge_model,
+                temperature=settings.judge_temperature,
+                messages=messages,
+                response_model=JudgeVerdict,
+                max_retries=2,
+            )
+            return verdict
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt < 2:
+                logger.warning("judge call failed (attempt %d/3): %s", attempt + 1, exc)
+                await asyncio.sleep(5 * (attempt + 1))
+    raise last_exc  # type: ignore[misc]
 
 
 def _heuristic_verdict(output: str, expected: dict) -> JudgeVerdict:

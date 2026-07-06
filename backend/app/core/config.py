@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     dev_fake_judge: bool = Field(False, validation_alias="DEV_FAKE_JUDGE")
     groq_api_key: str | None = Field(default=None, validation_alias="GROQ_API_KEY")
     public_url: str = Field("https://redline-safety.fly.dev", validation_alias="PUBLIC_URL")
+    # Seconds to wait between testcases (paces shared-provider rate limits, e.g. Groq TPM).
+    eval_pacing_seconds: float = Field(12.0, validation_alias="EVAL_PACING_SECONDS")
+    # When true, POST /quick-eval requires the admin key or a valid invite token.
+    require_eval_auth: bool = Field(False, validation_alias="REQUIRE_EVAL_AUTH")
+    # Max seconds a single eval run may take before the worker kills it.
+    job_timeout_seconds: int = Field(3600, validation_alias="JOB_TIMEOUT_SECONDS")
+    # Max queued jobs before /quick-eval returns 503.
+    max_queued_jobs: int = Field(20, validation_alias="MAX_QUEUED_JOBS")
 
     @model_validator(mode="after")
     def _reject_weak_admin_key(self) -> "Settings":
