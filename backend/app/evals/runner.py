@@ -124,9 +124,9 @@ async def execute_run(
         }
         db.commit()
 
-        # Pace shared-provider rate limits (e.g. Groq TPM). Custom agent endpoints
-        # and the fake provider don't need it.
-        if not run.agent_endpoint_url and not settings.dev_fake_provider and settings.eval_pacing_seconds > 0:
+        # Pace between testcases to respect the judge model's rate limit (Groq TPM).
+        # Always applied unless running with the fake provider (tests/CI).
+        if not settings.dev_fake_provider and settings.eval_pacing_seconds > 0:
             await asyncio.sleep(settings.eval_pacing_seconds)
 
     summary = aggregate_metrics(results_payload)
