@@ -37,26 +37,42 @@ class OpenAIProvider(BaseProvider):
         if "openrouter" in self.base_url:
             headers["HTTP-Referer"] = "https://redline-safety.fly.dev"
             headers["X-Title"] = "Redline Safety Evals"
-        async with httpx.AsyncClient(timeout=60) as client:
-            async with client.stream("POST", f"{self.base_url}/chat/completions", json=payload, headers=headers) as resp:
-                if not resp.is_success:
-                    body = (await resp.aread())[:500].decode("utf-8", errors="replace")
-                    raise httpx.HTTPStatusError(
-                        f"HTTP {resp.status_code} from {self.base_url}: {body}",
-                        request=resp.request,
-                        response=resp,
-                    )
-                # Cap response body at 2 MB to prevent memory exhaustion DoS
-                _MAX_BYTES = 2 * 1024 * 1024
-                chunks: list[bytes] = []
-                total = 0
-                async for chunk in resp.aiter_bytes():
-                    total += len(chunk)
-                    if total > _MAX_BYTES:
-                        raise ValueError(f"Agent endpoint response exceeded {_MAX_BYTES} byte limit")
-                    chunks.append(chunk)
-            data = __import__("json").loads(b"".join(chunks))
-            return data["choices"][0]["message"].get("content") or ""
+
+        _MAX_BYTES = 2 * 1024 * 1024
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            if attempt:
+                await asyncio.sleep(10 * attempt)  # 10s, 20s back-off on 429
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    async with client.stream("POST", f"{self.base_url}/chat/completions", json=payload, headers=headers) as resp:
+                        if resp.status_code == 429:
+                            body = (await resp.aread())[:200].decode("utf-8", errors="replace")
+                            last_exc = httpx.HTTPStatusError(
+                                f"HTTP 429 from {self.base_url}: {body}",
+                                request=resp.request,
+                                response=resp,
+                            )
+                            continue
+                        if not resp.is_success:
+                            body = (await resp.aread())[:500].decode("utf-8", errors="replace")
+                            raise httpx.HTTPStatusError(
+                                f"HTTP {resp.status_code} from {self.base_url}: {body}",
+                                request=resp.request,
+                                response=resp,
+                            )
+                        chunks: list[bytes] = []
+                        total = 0
+                        async for chunk in resp.aiter_bytes():
+                            total += len(chunk)
+                            if total > _MAX_BYTES:
+                                raise ValueError(f"Agent endpoint response exceeded {_MAX_BYTES} byte limit")
+                            chunks.append(chunk)
+                    data = __import__("json").loads(b"".join(chunks))
+                    return data["choices"][0]["message"].get("content") or ""
+            except httpx.HTTPStatusError:
+                raise
+        raise last_exc or RuntimeError("Request failed after retries")
 
 
 class AnthropicProvider(BaseProvider):
