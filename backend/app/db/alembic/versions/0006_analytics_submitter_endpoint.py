@@ -1,6 +1,6 @@
 """rename user_email to submitter, add custom_endpoint flag
 
-Revision ID: 0006_analytics_submitter_endpoint
+Revision ID: 0006_analytics_submitter
 Revises: 0005_run_stream_token
 Create Date: 2026-07-06
 """
@@ -8,7 +8,7 @@ Create Date: 2026-07-06
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0006_analytics_submitter_endpoint"
+revision = "0006_analytics_submitter"
 down_revision = "0005_run_stream_token"
 branch_labels = None
 depends_on = None

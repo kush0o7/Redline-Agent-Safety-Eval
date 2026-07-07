@@ -1,7 +1,7 @@
 """add judge_reasoning to run_results
 
 Revision ID: 0007
-Revises: 0006
+Revises: 0006_analytics_submitter
 Create Date: 2026-06-24
 """
 from alembic import op
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "0007"
-down_revision = "0006"
+down_revision = "0006_analytics_submitter"
 
 
 def upgrade() -> None:
