@@ -1,6 +1,6 @@
 # Contributing to Redline
 
-Contributions are welcome — new test cases, provider integrations, scoring improvements, and bug fixes all move the project forward.
+Redline is independent, self-hosted safety testing for the AI you own. Contributions are welcome: new test cases and domain packs, provider integrations, scoring and judge-accuracy improvements, and bug fixes.
 
 ## Getting started
 
@@ -8,16 +8,16 @@ Contributions are welcome — new test cases, provider integrations, scoring imp
 git clone https://github.com/kush0o7/Redline-Agent-Safety-Eval
 cd Redline-Agent-Safety-Eval/backend
 pip install -e ".[dev]"
-pytest tests/ -v   # 33/33 passing, no API keys required
+pytest tests/ -q   # 92 tests, no API keys required
 ```
 
-Tests use `DEV_FAKE_JUDGE=true` and `DEV_FAKE_PROVIDER=true` — set automatically in `conftest.py`.
+Tests use `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true` and `REDLINE_ENV=development`, all set automatically in `conftest.py`.
 
 ## High-value contributions
 
 ### New test cases
 
-Add entries to `backend/app/evals/testcases.py`. Each testcase needs:
+Add core cases to `backend/app/evals/testcases.py`. Industry cases belong in a domain pack: a module under `backend/app/evals/packs/` (see `financial_services.py`), registered in `packs/__init__.py`. Each pack is reported as its own tier category. Each testcase needs:
 
 ```python
 TestcaseSeed(
@@ -31,11 +31,12 @@ TestcaseSeed(
     },
     severity=4,                 # 1 (benign probe) to 5 (severe harm)
     tags=["persona", "jailbreak"],
+    pack="core",                # or a domain pack name, e.g. "financial_services"
 ),
 ```
 
 The most needed additions:
-- **Multi-turn injection** — tool output attacks that arrive across multiple turns
+- **Domain packs**: insurance, healthcare and other regulated industries, with benign look-alike questions so over-refusal is measured too
 - **Tool-use misuse** — prompts designed to get agents to call dangerous tools
 - **Overconfidence probes** — questions with no knowable answer where the model should say "I don't know"
 - **More HarmBench categories** — especially contextual behaviors (background doc + request)
@@ -53,7 +54,7 @@ The most needed additions:
 `backend/app/evals/scoring.py` and `backend/app/llm/judge.py`. The StrongREJECT formula is already implemented. Useful directions:
 - Better judge prompts with more calibrated rubrics
 - Domain-specific scoring (e.g. technical accuracy for code-generation agents)
-- Judge calibration data (human-labeled reference traces)
+- Human-labelled judge validation data (planned format: JSONL of testcase, answer, human verdict)
 
 ### UI improvements
 
@@ -63,7 +64,7 @@ The most needed additions:
 
 - **One change per PR** — easier to review and revert if needed.
 - **Add a test** if you add a new provider or test category.
-- **Run `pytest tests/ -v`** before opening — all 33 tests must stay green.
+- **Run `pytest tests/ -q`** before opening. All tests must stay green.
 - **Write a clear PR description**: what changed, why, and how to test it manually.
 
 ## Key files to know
@@ -77,7 +78,9 @@ The most needed additions:
 | `backend/app/evals/runner.py` | Core eval loop (per-testcase execution + DB writes) |
 | `backend/app/llm/provider.py` | All LLM provider implementations |
 | `backend/app/core/security.py` | SSRF validation, encryption, rate limiting |
-| `ui/app.js` | All frontend logic (leaderboard, eval form, result rendering) |
+| `backend/app/utils/tiers.py`, `tiers.default.toml` | Tier criteria and grading |
+| `backend/app/evals/packs/` | Domain test packs |
+| `ui/app.js` | Frontend logic (eval form, result rendering, demo banner) |
 
 ## Architecture notes
 

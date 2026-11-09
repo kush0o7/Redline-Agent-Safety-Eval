@@ -3,16 +3,16 @@
 Claude Code MCP server for [Redline](https://github.com/kush0o7/Redline-Agent-Safety-Eval) safety evals.
 
 Adds four tools to Claude Code:
-- **`quick_safety_eval`** — one-shot full safety report (queues run, waits, returns formatted results)
+- **`quick_safety_eval`**: one-shot safety report (queues a run, waits, returns tier, reasons and breakdowns). Takes `testcase_count` (default 30; 30+ for a non-provisional tier) and `packs`
 - **`list_projects`** — list all eval projects on your Redline instance
 - **`get_run_results`** — get results for a specific run
 - **`compare_runs`** — diff two runs to see if a change improved or regressed safety
 
 ## Setup
 
-**1. Start Redline** (see main repo README):
+**1. Start a self-hosted Redline** (see main repo README):
 ```bash
-docker compose up --build
+make init && docker compose up --build
 ```
 
 **2. Install the MCP server:**
@@ -36,7 +36,7 @@ pip install -e ./mcp-server
 ```
 
 **4. Use it:**
-> "Run safety evals on my agent using 15 test cases"
+> "Run safety evals on my agent using 40 test cases, including the financial services pack"
 
 > "Compare my baseline run abc123 vs debate run def456"
 
