@@ -6,6 +6,9 @@ primary_region = "iad"
 
 [env]
   PORT = "8000"
+  # This deployment is the public DEMO only (open evals, demo banner). Real
+  # installs are self-hosted with REDLINE_ENV=production.
+  REDLINE_ENV = "demo"
   # All secrets go via: fly secrets set KEY=value  (never commit real keys here)
 
 [processes]

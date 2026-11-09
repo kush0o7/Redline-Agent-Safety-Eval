@@ -325,9 +325,10 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
     if (useCustom && !endpointUrl) throw new Error("Agent endpoint URL is required.");
     if (submitter) localStorage.setItem("redline_submitter", submitter);
 
+    const authHeaders = getAdminKey() ? { "X-Admin-Key": getAdminKey() } : {};
     const queued = await fetch("/quick-eval", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({
         testcase_count: count, mode,
         ...(model       && { model }),
@@ -337,7 +338,10 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
       }),
     }).then(r => r.json());
 
-    if (!queued.run_id) throw new Error(queued.detail || "Failed to queue run.");
+    if (!queued.run_id) {
+      if (queued.detail === "Unauthorized") throw new Error("This install requires the admin key — open ⚙️ admin and paste ADMIN_API_KEY from your .env.");
+      throw new Error(queued.detail || "Failed to queue run.");
+    }
 
     const { run_id, project_id, testcase_count } = queued;
     setProgress(15, `Queued — ${testcase_count} test cases loading…`);
@@ -350,7 +354,7 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
     const watchViaPolling = async () => {
       for (let i = 0; i < 1200; i++) {
         await new Promise(r => setTimeout(r, 3000));
-        const data = await fetch(`/quick-eval/${run_id}`).then(r => r.json()).catch(() => null);
+        const data = await fetch(`/quick-eval/${run_id}`, { headers: authHeaders }).then(r => r.json()).catch(() => null);
         if (!data) continue;
         applyProgress(data.status, data.summary);
         if (data.status === "completed" || data.status === "failed") return data.status;

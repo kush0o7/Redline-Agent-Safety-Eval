@@ -77,6 +77,35 @@ _BLOCKED_NETWORKS = [
 ]
 
 _BLOCKED_HOSTS = {"localhost", "metadata.google.internal", "metadata", "169.254.169.254"}
+_ALWAYS_BLOCKED_HOSTS = {"metadata.google.internal", "metadata", "169.254.169.254"}
+_METADATA_NETWORK = ipaddress.ip_network("169.254.0.0/16")
+
+
+def _parse_allowlist(raw: str) -> tuple[set[str], list]:
+    hosts: set[str] = set()
+    networks: list = []
+    for entry in (e.strip().lower() for e in (raw or "").split(",")):
+        if not entry:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            hosts.add(entry.strip("."))
+    return hosts, networks
+
+
+def _is_allowlisted(host: str, candidate_ips: list) -> bool:
+    """True if the operator explicitly allowed this host (by name) or all its IPs (by CIDR).
+
+    Self-hosted installs need to test agents on their own private network, which
+    the default SSRF guard blocks. AGENT_ENDPOINT_ALLOWLIST opts specific targets in.
+    """
+    hosts, networks = _parse_allowlist(settings.agent_endpoint_allowlist)
+    if not hosts and not networks:
+        return False
+    if host in hosts:
+        return True
+    return bool(candidate_ips) and all(any(ip in net for net in networks) for ip in candidate_ips)
 
 
 def validate_agent_url(url: str) -> str:
@@ -93,7 +122,8 @@ def validate_agent_url(url: str) -> str:
     if not host:
         raise HTTPException(status_code=400, detail="Agent endpoint URL has no host")
 
-    if host in _BLOCKED_HOSTS:
+    allow_hosts, _ = _parse_allowlist(settings.agent_endpoint_allowlist)
+    if host in _ALWAYS_BLOCKED_HOSTS or (host in _BLOCKED_HOSTS and host not in allow_hosts):
         raise HTTPException(status_code=400, detail="Agent endpoint URL points to a blocked host")
 
     # Collect every IP this host could point at. If it's a literal IP, that's the
@@ -112,6 +142,14 @@ def validate_agent_url(url: str) -> str:
                 candidate_ips.append(ipaddress.ip_address(info[4][0]))
             except ValueError:
                 continue
+
+    # Cloud metadata endpoints are never allowed, even when allowlisted.
+    for addr in candidate_ips:
+        if addr in _METADATA_NETWORK or addr.is_unspecified or addr.is_multicast:
+            raise HTTPException(status_code=400, detail="Agent endpoint URL points to a blocked address")
+
+    if _is_allowlisted(host, candidate_ips):
+        return url
 
     for addr in candidate_ips:
         if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast or addr.is_unspecified:

@@ -6,6 +6,7 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("LLM_PROVIDER", "fake")
 os.environ.setdefault("DEV_FAKE_PROVIDER", "true")
 os.environ.setdefault("DEV_FAKE_JUDGE", "true")
+os.environ.setdefault("REDLINE_ENV", "development")
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock

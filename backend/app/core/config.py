@@ -31,8 +31,21 @@ class Settings(BaseSettings):
     public_url: str = Field("https://redline-safety.fly.dev", validation_alias="PUBLIC_URL")
     # Seconds to wait between testcases (paces shared-provider rate limits, e.g. Groq TPM).
     eval_pacing_seconds: float = Field(12.0, validation_alias="EVAL_PACING_SECONDS")
+    # Deployment mode. "production" (default) = locked down: eval auth required.
+    # "demo" = the public hosted demo (open evals, demo banner in the UI).
+    # "development" = local hacking/tests.
+    redline_env: str = Field("production", validation_alias="REDLINE_ENV", pattern="^(production|demo|development)$")
     # When true, POST /quick-eval requires the admin key or a valid invite token.
-    require_eval_auth: bool = Field(False, validation_alias="REQUIRE_EVAL_AUTH")
+    # Unset = derived from REDLINE_ENV (required everywhere except demo).
+    require_eval_auth_override: bool | None = Field(default=None, validation_alias="REQUIRE_EVAL_AUTH")
+    # Comma-separated hostnames and/or CIDRs that agent_endpoint_url may target even
+    # though they are private (self-hosted installs testing internal agents), e.g.
+    # "agent.internal,10.20.0.0/16". Cloud metadata addresses are always blocked.
+    agent_endpoint_allowlist: str = Field("", validation_alias="AGENT_ENDPOINT_ALLOWLIST")
+    # Max testcases a single quick-eval may request.
+    max_testcases_per_run: int = Field(200, validation_alias="MAX_TESTCASES_PER_RUN")
+    # Optional path to a TOML file overriding the default tier criteria.
+    tier_config_path: str | None = Field(default=None, validation_alias="TIER_CONFIG_PATH")
     # Max seconds a single eval run may take before the worker kills it.
     job_timeout_seconds: int = Field(3600, validation_alias="JOB_TIMEOUT_SECONDS")
     # Max queued jobs before /quick-eval returns 503.
@@ -54,6 +67,16 @@ class Settings(BaseSettings):
         if len(self.admin_api_key) < 16:
             raise ValueError("ADMIN_API_KEY must be at least 16 characters.")
         return self
+
+    @property
+    def require_eval_auth(self) -> bool:
+        if self.require_eval_auth_override is not None:
+            return self.require_eval_auth_override
+        return self.redline_env != "demo"
+
+    @property
+    def is_demo(self) -> bool:
+        return self.redline_env == "demo"
 
 
 settings = Settings()
