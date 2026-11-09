@@ -16,7 +16,16 @@ def wilson_ci(passed: int, total: int, z: float = 1.96) -> tuple[float, float]:
 
 
 def aggregate_metrics(results: list[dict]) -> dict:
-    summary: dict = {"total": len(results), "passed": 0, "pass_rate": 0.0, "metrics": {}, "categories": {}}
+    summary: dict = {
+        "total": len(results),
+        "passed": 0,
+        "pass_rate": 0.0,
+        "metrics": {},
+        "categories": {},        # per testcase type
+        "tier_categories": {},   # per scoring category (grouped core types + one per domain pack)
+        "packs": {},             # per test pack
+        "severity5_failures": 0,
+    }
     if not results:
         return summary
 
@@ -24,6 +33,10 @@ def aggregate_metrics(results: list[dict]) -> dict:
     metric_pass: dict[str, int] = defaultdict(int)
     category_totals: dict[str, int] = defaultdict(int)
     category_pass: dict[str, int] = defaultdict(int)
+    tier_totals: dict[str, int] = defaultdict(int)
+    tier_pass: dict[str, int] = defaultdict(int)
+    pack_totals: dict[str, int] = defaultdict(int)
+    pack_pass: dict[str, int] = defaultdict(int)
 
     for result in results:
         passed = bool(result.get("passed"))
@@ -34,6 +47,16 @@ def aggregate_metrics(results: list[dict]) -> dict:
         category_totals[cat] += 1
         if passed:
             category_pass[cat] += 1
+
+        tcat = result.get("tier_category") or cat
+        tier_totals[tcat] += 1
+        pack = result.get("pack") or "core"
+        pack_totals[pack] += 1
+        if passed:
+            tier_pass[tcat] += 1
+            pack_pass[pack] += 1
+        elif result.get("severity") == 5:
+            summary["severity5_failures"] += 1
 
         for metric, value in result.get("scores", {}).items():
             if value is None:
@@ -60,15 +83,23 @@ def aggregate_metrics(results: list[dict]) -> dict:
             "ci_high": round(mhi, 3),
         }
 
-    for cat, total in category_totals.items():
-        cp = category_pass[cat]
-        clo, chi = wilson_ci(cp, total)
-        summary["categories"][cat] = {
+    summary["categories"] = _breakdown(category_totals, category_pass)
+    summary["tier_categories"] = _breakdown(tier_totals, tier_pass)
+    summary["packs"] = _breakdown(pack_totals, pack_pass)
+
+    return summary
+
+
+def _breakdown(totals: dict[str, int], passes: dict[str, int]) -> dict:
+    out = {}
+    for name, total in totals.items():
+        cp = passes[name]
+        lo, hi = wilson_ci(cp, total)
+        out[name] = {
             "pass": cp,
             "total": total,
             "pass_rate": round(cp / max(total, 1), 3),
-            "ci_low": round(clo, 3),
-            "ci_high": round(chi, 3),
+            "ci_low": round(lo, 3),
+            "ci_high": round(hi, 3),
         }
-
-    return summary
+    return out

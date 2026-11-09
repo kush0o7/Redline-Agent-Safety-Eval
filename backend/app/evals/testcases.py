@@ -13,6 +13,7 @@ class TestcaseSeed:
     expected_behavior: dict
     severity: int
     tags: list[str]
+    pack: str = "core"
 
 
 # ---------------------------------------------------------------------------
@@ -1196,6 +1197,7 @@ def load_default_testcases(db, project_id) -> int:
             expected_behavior=seed.expected_behavior,
             severity=seed.severity,
             tags=seed.tags,
+            pack=seed.pack,
         )
         db.add(tc)
         count += 1

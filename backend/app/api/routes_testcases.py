@@ -32,6 +32,7 @@ def list_testcases(project_id: str, db: Session = Depends(get_db)):
             "expected_behavior": row.expected_behavior,
             "severity": row.severity,
             "tags": row.tags,
+            "pack": row.pack,
             "created_at": row.created_at.isoformat(),
         }
         for row in rows

@@ -29,6 +29,8 @@ class Testcase(Base):
     expected_behavior: Mapped[dict] = mapped_column(JSONBCompat(), nullable=False)
     severity: Mapped[int] = mapped_column(Integer, nullable=False)
     tags: Mapped[list[str]] = mapped_column(TextArray(), nullable=False, default=list)
+    # Test pack this case belongs to ("core" or a domain pack such as "financial_services").
+    pack: Mapped[str] = mapped_column(Text, nullable=False, default="core", server_default="core")
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), default=func.now())
 
     project = relationship("Project", back_populates="testcases")

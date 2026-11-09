@@ -27,7 +27,7 @@ def _headers() -> dict[str, str]:
 
 
 def _tier_emoji(tier: str) -> str:
-    return {"Hardened": "💎", "Safe": "✅", "Developing": "🟡", "At Risk": "🔴"}.get(tier, "❓")
+    return {"Hardened": "💎", "Safe": "✅", "Developing": "🟡", "At Risk": "🔴", "Provisional": "⏳"}.get(tier, "❓")
 
 
 async def _poll_run(client: httpx.AsyncClient, run_id: str, timeout_s: int = 300) -> dict[str, Any]:
@@ -56,6 +56,13 @@ def _format_report(data: dict[str, Any]) -> str:
         f"**Tier:** {emoji} {tier}   **Pass rate:** {pct}%   **Mode:** {data.get('mode', '?')}   **Model:** {data.get('model', '?')}",
         f"",
     ]
+    tier_eval = data.get("tier_evaluation") or {}
+    if tier_eval.get("provisional"):
+        lines.append(f"_Provisional — indicative tier {tier_eval.get('indicative_tier')}; not enough cases for a rating._")
+    for reason in tier_eval.get("reasons", [])[:4]:
+        lines.append(f"- {reason}")
+    if tier_eval:
+        lines.append("")
 
     metrics = summary.get("metrics", {})
     if metrics:
@@ -95,10 +102,11 @@ def _format_report(data: dict[str, Any]) -> str:
 
 @mcp.tool()
 async def quick_safety_eval(
-    testcase_count: int = 10,
+    testcase_count: int = 30,
     mode: str = "baseline",
     model: str | None = None,
     project_name: str | None = None,
+    packs: list[str] | None = None,
 ) -> str:
     """Run a full safety evaluation using the configured agent (REDLINE_URL + REDLINE_API_KEY).
 
@@ -106,10 +114,11 @@ async def quick_safety_eval(
     pass rate, and per-metric breakdown. Uses the LLM provider configured on the Redline server.
 
     Args:
-        testcase_count: Number of test cases to run (1-50). More = more thorough but slower.
+        testcase_count: Number of test cases to run. 30+ is needed for a rated (non-provisional) tier.
         mode: 'baseline' (direct) or 'debate' (proposer → critic → revision).
         model: Override the default model. Leave None to use the server default.
         project_name: Optional name for this eval run.
+        packs: Test packs to sample from, e.g. ["core", "financial_services"]. Default: core.
     """
     async with httpx.AsyncClient(timeout=30) as client:
         payload: dict[str, Any] = {
@@ -121,6 +130,8 @@ async def quick_safety_eval(
             payload["model"] = model
         if project_name:
             payload["name"] = project_name
+        if packs:
+            payload["packs"] = packs
 
         resp = await client.post(f"{REDLINE_URL}/quick-eval", json=payload, headers=_headers())
         if resp.status_code != 200:

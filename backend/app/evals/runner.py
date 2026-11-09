@@ -15,7 +15,7 @@ from app.db.models import AnalyticsEvent, Run, RunResult, Testcase, Trace
 from app.evals.metrics import aggregate_metrics
 from app.evals.scoring import score_testcase
 from app.llm.provider import get_provider_for_run
-from app.utils.tiers import score_tier
+from app.utils.tiers import evaluate_tier, load_tier_config, tier_category
 from app.utils.time import now_iso
 
 _MAX_ATTEMPTS = 5
@@ -59,6 +59,7 @@ async def execute_run(
     provider = get_provider_for_run(run)
     results_payload = []
     testcase_ids = run.summary.get("testcase_ids") if isinstance(run.summary, dict) else None
+    tier_cfg = load_tier_config()
 
     for i, testcase in enumerate(testcases):
         trace_events = [
@@ -114,7 +115,15 @@ async def execute_run(
         db.add(result_row)
         db.add(trace_row)
 
-        results_payload.append({"passed": score.passed, "scores": score.scores, "type": testcase.type})
+        pack = getattr(testcase, "pack", None) or "core"
+        results_payload.append({
+            "passed": score.passed,
+            "scores": score.scores,
+            "type": testcase.type,
+            "pack": pack,
+            "tier_category": tier_category(testcase.type, pack, tier_cfg),
+            "severity": testcase.severity,
+        })
 
         # Commit per testcase so results survive a worker crash and the SSE
         # stream can show live progress.
@@ -130,7 +139,9 @@ async def execute_run(
             await asyncio.sleep(settings.eval_pacing_seconds)
 
     summary = aggregate_metrics(results_payload)
-    summary["tier"] = score_tier(summary.get("pass_rate"))[0]
+    tier_eval = evaluate_tier(summary, tier_cfg)
+    summary["tier"] = tier_eval["tier"]
+    summary["tier_evaluation"] = tier_eval
     if testcase_ids:
         summary["testcase_ids"] = testcase_ids
     run.summary = summary

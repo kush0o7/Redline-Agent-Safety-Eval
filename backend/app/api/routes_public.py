@@ -19,7 +19,7 @@ from app.db.models import AnalyticsEvent, InviteToken, Project, Run, RunResult, 
 from app.db.session import get_db
 from app.evals.testcases import TestcaseSeed, build_default_testcases
 from app.core.config import settings
-from app.utils.tiers import score_tier
+from app.utils.tiers import load_tier_config, score_tier, tier_category, tier_style
 
 logger = logging.getLogger("redline.public")
 
@@ -55,7 +55,8 @@ def project_badge(project_id: str, db: Session = Depends(get_db)):
         })
 
     pass_rate = latest_run.summary.get("pass_rate")
-    label, color = score_tier(pass_rate)
+    label = _stored_tier(latest_run.summary)
+    _, color = tier_style(label)
     pct = round((pass_rate or 0) * 100)
 
     return JSONResponse({
@@ -64,6 +65,13 @@ def project_badge(project_id: str, db: Session = Depends(get_db)):
         "message": f"{pct}% {label}",
         "color": color,
     })
+
+
+def _stored_tier(summary: dict | None) -> str:
+    """Tier recorded at run completion; falls back to the legacy pass-rate-only tier."""
+    if not summary:
+        return "Unknown"
+    return summary.get("tier") or score_tier(summary.get("pass_rate"))[0]
 
 
 # ── Quick eval (auth required, all-in-one convenience endpoint) ────────────────
@@ -105,7 +113,8 @@ class QuickEvalCreate(BaseModel):
     name: str | None = Field(default=None, description="Optional project name (auto-generated if omitted)")
     mode: str = Field(default="baseline", pattern="^(baseline|debate)$", description="baseline or debate")
     model: str | None = Field(default=None, max_length=120, description="Override DEFAULT_MODEL")
-    testcase_count: int = Field(default=10, ge=1, le=50, description="Number of test cases to run")
+    testcase_count: int = Field(default=30, ge=1, le=500, description="Number of test cases to run (30+ for a rated tier)")
+    packs: list[str] = Field(default_factory=lambda: ["core"], min_length=1, description='Test packs to sample from, e.g. ["core", "financial_services"]')
     seed: int = Field(default=7)
     agent_endpoint_url: str | None = Field(default=None, max_length=512, description="OpenAI-compatible chat endpoint to test")
     agent_endpoint_key: str | None = Field(default=None, max_length=256, description="API key for the agent endpoint")
@@ -117,25 +126,51 @@ def _select_testcase_seeds(seeds: list[TestcaseSeed], count: int, seed: int) -> 
 
     A plain LIMIT with no ORDER BY picked arbitrary rows (Postgres guarantees no
     order), so two "10-case" runs could test entirely different things. Instead:
-    shuffle within each type with a seeded RNG, then round-robin across types so
-    a small run still covers jailbreak/injection/hallucination/benign.
+    shuffle within each type with a seeded RNG, then round-robin across scoring
+    categories (the ones tiers are judged on), and across types within each
+    category, so every category reaches the per-category minimum as early as
+    possible.
     """
     rnd = random.Random(seed)
-    by_type: dict[str, list[TestcaseSeed]] = {}
+    cfg = load_tier_config()
+    by_cat: dict[str, dict[str, list[TestcaseSeed]]] = {}
     for s in sorted(seeds, key=lambda s: s.name):
-        by_type.setdefault(s.type, []).append(s)
-    for group in by_type.values():
-        rnd.shuffle(group)
+        cat = tier_category(s.type, s.pack, cfg)
+        by_cat.setdefault(cat, {}).setdefault(s.type, []).append(s)
+    for types in by_cat.values():
+        for group in types.values():
+            rnd.shuffle(group)
+
+    # Per-category cursor that cycles through that category's types.
+    type_cursor = {cat: 0 for cat in by_cat}
+
+    def _next_from(cat: str) -> TestcaseSeed | None:
+        types = sorted(t for t, g in by_cat[cat].items() if g)
+        if not types:
+            return None
+        t = types[type_cursor[cat] % len(types)]
+        type_cursor[cat] += 1
+        return by_cat[cat][t].pop(0)
 
     selected: list[TestcaseSeed] = []
-    type_order = sorted(by_type)
-    while len(selected) < count and any(by_type.values()):
-        for t in type_order:
-            if by_type[t]:
-                selected.append(by_type[t].pop(0))
-                if len(selected) >= count:
-                    break
+    cat_order = sorted(by_cat)
+    while len(selected) < count:
+        progressed = False
+        for cat in cat_order:
+            picked = _next_from(cat)
+            if picked is None:
+                continue
+            progressed = True
+            selected.append(picked)
+            if len(selected) >= count:
+                break
+        if not progressed:
+            break
     return selected
+
+
+def _available_packs(seeds: list[TestcaseSeed]) -> set[str]:
+    return {s.pack for s in seeds}
 
 
 @router.post("/quick-eval", dependencies=[Depends(_verify_eval_access)])
@@ -169,7 +204,16 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         raise HTTPException(status_code=409, detail="Project name already exists")
     db.refresh(project)
 
-    seeds = _select_testcase_seeds(build_default_testcases(), payload.testcase_count, payload.seed)
+    max_cases = 50 if settings.is_demo else settings.max_testcases_per_run
+    if payload.testcase_count > max_cases:
+        raise HTTPException(status_code=422, detail=f"testcase_count may be at most {max_cases} on this deployment")
+
+    all_seeds = build_default_testcases()
+    unknown = set(payload.packs) - _available_packs(all_seeds)
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown test pack(s): {', '.join(sorted(unknown))}")
+    pool = [s for s in all_seeds if s.pack in set(payload.packs)]
+    seeds = _select_testcase_seeds(pool, payload.testcase_count, payload.seed)
     if not seeds:
         raise HTTPException(status_code=500, detail="No test cases available to seed")
 
@@ -182,6 +226,7 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
             expected_behavior=s.expected_behavior,
             severity=s.severity,
             tags=s.tags,
+            pack=s.pack,
         )
         for s in seeds
     ]
@@ -243,14 +288,15 @@ def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
             Testcase.id.in_([r.testcase_id for r in rows])
         ).all()
         tc_map = {str(tc.id): tc for tc in testcases}
-        pass_rate = run.summary.get("pass_rate") if run.summary else None
-        tier_label, _ = score_tier(pass_rate)
-        response["tier"] = tier_label
+        response["tier"] = _stored_tier(run.summary)
+        response["tier_evaluation"] = (run.summary or {}).get("tier_evaluation")
         response["results"] = [
             {
                 "testcase_id": str(r.testcase_id),
                 "testcase_name": tc_map[str(r.testcase_id)].name if str(r.testcase_id) in tc_map else None,
                 "testcase_type": tc_map[str(r.testcase_id)].type if str(r.testcase_id) in tc_map else None,
+                "pack": tc_map[str(r.testcase_id)].pack if str(r.testcase_id) in tc_map else None,
+                "severity": tc_map[str(r.testcase_id)].severity if str(r.testcase_id) in tc_map else None,
                 "prompt": tc_map[str(r.testcase_id)].prompt if str(r.testcase_id) in tc_map else None,
                 "response": r.raw_output,
                 "passed": r.passed,
