@@ -71,47 +71,19 @@ async function publicFetch(path) {
   return resp.json();
 }
 
-// ── Leaderboard ───────────────────────────────────────────────────────────────
+// ── Deployment info (demo banner, auth hint) ─────────────────────────────────
 
-async function loadLeaderboard() {
+(async function initDeployment() {
   try {
-    const { entries, total_runs, total_models, avg_pass_pct } = await publicFetch("/leaderboard");
-
-    // Stats bar
-    document.getElementById("statRuns").textContent   = total_runs ?? "—";
-    document.getElementById("statModels").textContent = total_models ?? "—";
-    document.getElementById("statAvg").textContent    = avg_pass_pct != null ? `${avg_pass_pct}%` : "—";
-
-    const tbody = document.getElementById("lbBody");
-    if (!entries || entries.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="lb-empty">No evals yet — be the first to run one below 👇</td></tr>`;
-      return;
+    const info = await publicFetch("/health");
+    if (info.deployment === "demo") {
+      document.getElementById("demoBanner")?.classList.remove("hidden");
     }
-
-    const myName = localStorage.getItem("redline_submitter") || "";
-    tbody.innerHTML = entries.map(e => {
-      const isYou = myName && e.submitter === myName;
-      const unverified = e.custom_endpoint
-        ? ` <span title="Run against a user-supplied endpoint — model name is self-reported" style="font-size:11px;opacity:.7">⚠️ unverified</span>`
-        : "";
-      return `<tr class="${isYou ? "lb-you" : ""}">
-        <td class="lb-rank">${esc(e.rank)}</td>
-        <td>
-          <div class="lb-model">${esc(e.model)}${unverified}${isYou ? " 👈 you" : ""}</div>
-          <div class="lb-sub">by ${esc(e.submitter || "anonymous")}</div>
-        </td>
-        <td class="lb-pct">${esc(e.pass_pct)}%</td>
-        <td><span class="lb-tier">${esc(e.tier || "—")}</span></td>
-        <td class="lb-date">${esc(e.testcase_count ?? "—")}</td>
-        <td class="lb-date">${esc(e.date || "—")}</td>
-      </tr>`;
-    }).join("");
-  } catch (e) {
-    document.getElementById("lbBody").innerHTML = `<tr><td colspan="6" class="lb-empty">Could not load leaderboard.</td></tr>`;
-  }
-}
-
-loadLeaderboard();
+    if (info.eval_auth_required && !getAdminKey()) {
+      document.getElementById("adminSection")?.classList.add("visible");
+    }
+  } catch (e) { /* health unavailable — leave defaults */ }
+})();
 
 // ── Render helpers ────────────────────────────────────────────────────────────
 
@@ -120,6 +92,7 @@ const TIER_CONFIG = {
   "Safe":       { emoji: "✅", cls: "tier-safe",        barColor: "#22c55e" },
   "Developing": { emoji: "🟡", cls: "tier-developing",  barColor: "#eab308" },
   "At Risk":    { emoji: "🔴", cls: "tier-at-risk",     barColor: "#ef4444" },
+  "Provisional":{ emoji: "⏳", cls: "tier-provisional", barColor: "#64748b" },
 };
 
 const METRIC_LABELS = {
@@ -175,22 +148,20 @@ function renderResults(data) {
     if (warn) warn.classList.remove("hidden");
   }
 
-  // Per-category breakdown
-  const categories = summary.categories || {};
-  const catGrid = document.getElementById("categoryGrid");
-  if (catGrid && Object.keys(categories).length > 0) {
-    document.getElementById("categoryCard")?.style.setProperty("display", "block");
-    catGrid.innerHTML = Object.entries(categories).sort((a,b)=>a[0].localeCompare(b[0])).map(([cat, c]) => {
-      const cpct = Math.round((c.pass_rate ?? 0) * 100);
-      const color = metricColor(cpct);
-      return `<div class="metric-row">
-        <span class="metric-icon">${cpct >= 75 ? "✅" : cpct >= 60 ? "⚠️" : "❌"}</span>
-        <span class="metric-name">${esc(cat)} <span style="color:var(--muted);font-size:11px">(${c.pass}/${c.total})</span></span>
-        <span class="metric-pct" style="color:${color}">${cpct}%</span>
-      </div>
-      <div class="metric-bar-wrap"><div class="metric-bar-fill" style="width:${cpct}%;background:${color}"></div></div>`;
-    }).join("");
+  // Tier explanation: provisional status + why higher tiers were missed
+  const tierEval = data.tier_evaluation || summary.tier_evaluation || null;
+  const reasonsEl = document.getElementById("tierReasons");
+  if (reasonsEl) {
+    const reasons = (tierEval && tierEval.reasons) || [];
+    const lines = [];
+    if (tierEval && tierEval.provisional) lines.push(`Indicative tier: ${tierEval.indicative_tier}`);
+    lines.push(...reasons);
+    reasonsEl.innerHTML = lines.map(r => `<li>${esc(r)}</li>`).join("");
   }
+
+  // Per-category breakdowns: scoring categories (what tiers are judged on) and raw test types
+  renderBreakdown("categoryCard", "categoryGrid", summary.tier_categories || {});
+  renderBreakdown("typeCard", "typeGrid", summary.categories || {});
 
   // Metric breakdown
   const metrics = summary.metrics || {};
@@ -251,33 +222,22 @@ function renderResults(data) {
 
   document.getElementById("runMeta").textContent =
     `run_id: ${data.run_id}  ·  project_id: ${data.project_id}  ·  model: ${data.model || "default"}  ·  mode: ${data.mode}`;
-
-  // Reload leaderboard to show new rank
-  loadLeaderboard().then(() => {
-    const myName = localStorage.getItem("redline_submitter") || "";
-    const rows = document.querySelectorAll("#lbBody tr.lb-you");
-    if (rows.length > 0) {
-      const rankCell = rows[0].querySelector(".lb-rank");
-      if (rankCell) {
-        document.getElementById("yourRank").textContent = `🏆 You're ranked #${rankCell.textContent} on the leaderboard`;
-      }
-    }
-  });
 }
 
-// ── Share ─────────────────────────────────────────────────────────────────────
-
-function shareResult() {
-  if (!_lastResult) return;
-  const pct   = Math.round((_lastResult.summary?.pass_rate ?? 0) * 100);
-  const tier  = _lastResult.tier || "At Risk";
-  const model = _lastResult.model || "my model";
-  const text  = `I just tested ${model} on Redline safety evals and scored ${pct}% (${tier})! Test your agent: https://redline-safety.fly.dev`;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(() => alert("Copied to clipboard! Share it anywhere."));
-  } else {
-    prompt("Copy this:", text);
-  }
+function renderBreakdown(cardId, gridId, groups) {
+  const grid = document.getElementById(gridId);
+  if (!grid || Object.keys(groups).length === 0) return;
+  document.getElementById(cardId)?.style.setProperty("display", "block");
+  grid.innerHTML = Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0])).map(([name, c]) => {
+    const cpct = Math.round((c.pass_rate ?? 0) * 100);
+    const color = metricColor(cpct);
+    return `<div class="metric-row">
+      <span class="metric-icon">${cpct >= 75 ? "✅" : cpct >= 60 ? "⚠️" : "❌"}</span>
+      <span class="metric-name">${esc(name)} <span style="color:var(--muted);font-size:11px">(${esc(c.pass)}/${esc(c.total)})</span></span>
+      <span class="metric-pct" style="color:${color}">${cpct}%</span>
+    </div>
+    <div class="metric-bar-wrap"><div class="metric-bar-fill" style="width:${cpct}%;background:${color}"></div></div>`;
+  }).join("");
 }
 
 function scrollToRun() {
@@ -317,22 +277,21 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
     const count       = parseInt(document.getElementById("testcaseCount").value, 10);
     const mode        = document.getElementById("runMode").value;
     const model       = document.getElementById("runModel").value.trim() || undefined;
-    const submitter   = document.getElementById("submitterName").value.trim() || undefined;
+    const packs       = [...document.querySelectorAll(".pack-box:checked")].map(b => b.value);
     const useCustom   = document.getElementById("useCustomAgent").checked;
     const endpointUrl = useCustom ? document.getElementById("agentEndpointUrl").value.trim() : undefined;
     const endpointKey = useCustom ? document.getElementById("agentEndpointKey").value.trim() : undefined;
 
     if (useCustom && !endpointUrl) throw new Error("Agent endpoint URL is required.");
-    if (submitter) localStorage.setItem("redline_submitter", submitter);
+    if (packs.length === 0) throw new Error("Select at least one test pack.");
 
     const authHeaders = getAdminKey() ? { "X-Admin-Key": getAdminKey() } : {};
     const queued = await fetch("/quick-eval", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({
-        testcase_count: count, mode,
+        testcase_count: count, mode, packs,
         ...(model       && { model }),
-        ...(submitter   && { submitter }),
         ...(endpointUrl && { agent_endpoint_url: endpointUrl }),
         ...(endpointKey && { agent_endpoint_key: endpointKey }),
       }),
@@ -369,7 +328,7 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
         const pct = 20 + Math.round((p.completed / p.total) * 65);
         setProgress(pct, `Evaluating test case ${p.completed}/${p.total}…`);
       } else {
-        setProgress(55, "Evaluating test cases — this takes ~2 min for 10 cases…");
+        setProgress(55, "Evaluating test cases…");
       }
     };
 

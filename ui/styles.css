@@ -285,6 +285,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .tier-safe       { color: #22c55e; }
 .tier-developing { color: #eab308; }
 .tier-at-risk    { color: #ef4444; }
+.tier-provisional { color: #94a3b8; }
 
 /* Metrics */
 .metrics-grid { display: grid; gap: 10px; }

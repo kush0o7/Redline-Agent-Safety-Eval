@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Redline — Agent Safety Evals</title>
+    <title>Redline — Safety Testing</title>
     <link rel="stylesheet" href="/ui/styles.css" />
     <style>
       /* Stats ticker */
@@ -42,6 +42,16 @@
       .btn-share { background: rgba(255,255,255,.08); border: 1px solid var(--border); color: var(--text); padding: 9px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; }
       .btn-share:hover { background: rgba(255,255,255,.14); }
 
+      /* Demo banner */
+      .demo-banner { background: rgba(234,179,8,.12); border: 1px solid rgba(234,179,8,.45); color: var(--text); border-radius: 8px; padding: 10px 14px; font-size: 13px; margin: 0 0 18px; }
+      .demo-banner strong { color: #eab308; }
+
+      /* Packs + tier reasons */
+      .pack-row { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0 16px; font-size: 14px; }
+      .tier-reasons { margin: 12px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+      .tier-reasons li { margin: 2px 0; }
+      .tier-provisional { color: var(--muted); }
+
       /* Admin toggle */
       .admin-toggle { text-align: right; margin-bottom: -16px; }
       .admin-toggle a { font-size: 12px; color: var(--muted); text-decoration: none; cursor: pointer; }
@@ -54,14 +64,19 @@
     <main class="container">
       <div class="admin-toggle"><a id="adminToggle" onclick="toggleAdmin()">⚙️ admin</a> · <a href="/ui/admin.html" style="font-size:12px;color:var(--muted);text-decoration:none;">dashboard</a></div>
 
+      <div id="demoBanner" class="demo-banner hidden">
+        <strong>Public demo only.</strong> Prompts and responses are sent to this hosted server and to
+        a third-party judge model — do not use real data here. For anything real, self-host Redline so
+        nothing leaves your network.
+      </div>
+
       <header>
-        <h1>Redline <span class="header-tag">Safety Evals</span></h1>
-        <p class="subtitle">Stress-test your AI agent against 75+ adversarial prompts. See how you rank.</p>
+        <h1>Redline <span class="header-tag">Safety Testing</span></h1>
+        <p class="subtitle">Independent, self-hosted safety testing for the AI you own. Run the same suite on every version and catch regressions before they ship.</p>
       </header>
 
       <nav style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
         <a href="/ui/" style="color:var(--accent);text-decoration:none;font-size:14px;font-weight:500;">Evaluate</a>
-        <a href="/ui/leaderboard.html" style="color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;">Leaderboard</a>
         <a href="/ui/methodology.html" style="color:var(--muted);text-decoration:none;font-size:14px;font-weight:500;">Methodology</a>
       </nav>
 
@@ -75,54 +90,21 @@
           <input id="adminKey" type="password" placeholder="X-Admin-Key" />
           <button id="saveKey" class="btn-secondary">Save</button>
         </div>
-        <p class="hint">Only needed for /admin/* endpoints. Regular evals are public.</p>
-      </section>
-
-      <!-- Stats bar -->
-      <div class="stats-bar" id="statsBar">
-        <div class="stat-item"><div class="stat-num" id="statRuns">—</div><div class="stat-label">evals run</div></div>
-        <div class="stat-item"><div class="stat-num" id="statModels">—</div><div class="stat-label">models tested</div></div>
-        <div class="stat-item"><div class="stat-num" id="statAvg">—</div><div class="stat-label">avg score</div></div>
-      </div>
-
-      <!-- Leaderboard -->
-      <section class="card">
-        <div class="card-header">
-          <h2>🏆 Leaderboard</h2>
-          <span class="badge badge-muted">best score per model</span>
-        </div>
-        <table class="lb-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Model / Submitted by</th>
-              <th>Score</th>
-              <th>Tier</th>
-              <th>Cases</th>
-              <th>Date</th>
-            </tr>
-          </thead>
-          <tbody id="lbBody">
-            <tr><td colspan="6" class="lb-empty">Loading leaderboard…</td></tr>
-          </tbody>
-        </table>
+        <p class="hint">Required to run evals on a self-hosted install — paste <code>ADMIN_API_KEY</code> from your <code>.env</code>. Stored in this browser only.</p>
       </section>
 
       <!-- Run eval CTA -->
       <section class="card card-hero cta-section" id="runSection">
-        <div class="cta-divider"><span>Test your agent — free, no signup</span></div>
-
-        <div class="name-row">
-          <input id="submitterName" type="text" placeholder="Your name or handle (shows on leaderboard)" maxlength="60" />
-        </div>
+        <div class="cta-divider"><span>Run a safety evaluation</span></div>
 
         <div class="form-grid">
           <label>
             Test cases
             <div class="slider-row">
-              <input id="testcaseCount" type="range" min="5" max="50" step="5" value="10" class="slider" />
-              <span id="testcaseCountLabel" class="slider-label">10</span>
+              <input id="testcaseCount" type="range" min="5" max="200" step="5" value="30" class="slider" />
+              <span id="testcaseCountLabel" class="slider-label">30</span>
             </div>
+            <span class="hint-inline">30+ (and 5+ per category) for a rated tier</span>
           </label>
 
           <label>
@@ -139,13 +121,19 @@
           </label>
         </div>
 
+        <div class="pack-row">
+          <span style="color:var(--muted)">Test packs:</span>
+          <label class="toggle-label"><input class="pack-box" type="checkbox" value="core" checked /> Core</label>
+          <label class="toggle-label"><input class="pack-box" type="checkbox" value="financial_services" /> Financial services</label>
+        </div>
+
         <div class="agent-endpoint-section">
           <div class="agent-endpoint-toggle">
             <label class="toggle-label">
               <input id="useCustomAgent" type="checkbox" />
               Test my own agent endpoint
             </label>
-            <span class="hint-inline">point Redline at any OpenAI-compatible URL</span>
+            <span class="hint-inline">any OpenAI-compatible URL; private addresses need AGENT_ENDPOINT_ALLOWLIST</span>
           </div>
           <div id="agentEndpointFields" class="agent-endpoint-fields hidden">
             <label>
@@ -190,16 +178,21 @@
             <span id="confidenceInterval" style="font-size:12px;color:var(--muted);"></span>
             <span id="sampleWarn" class="hidden" style="font-size:12px;color:#eab308;">⚠️ Small sample — run 30+ cases for reliable results</span>
           </div>
-          <div id="yourRank" style="margin-top:12px;font-size:13px;color:var(--muted);"></div>
+          <ul id="tierReasons" class="tier-reasons"></ul>
+          <p style="font-size:12px;color:var(--muted);margin-top:8px;">Tier criteria: <a href="/ui/methodology.html" style="color:var(--accent)">methodology</a></p>
           <div class="share-row">
-            <button class="btn-share" onclick="shareResult()">🔗 Share my score</button>
             <button class="btn-share" onclick="scrollToRun()">🔁 Run again</button>
           </div>
         </div>
 
         <div class="card" id="categoryCard" style="display:none">
-          <h2>By category</h2>
+          <h2>By scoring category</h2>
           <div id="categoryGrid" class="metrics-grid"></div>
+        </div>
+
+        <div class="card" id="typeCard" style="display:none">
+          <h2>By test type</h2>
+          <div id="typeGrid" class="metrics-grid"></div>
         </div>
 
         <div class="card">
@@ -265,6 +258,9 @@
           </div>
         </div>
       </details>
+      <p style="font-size:12px;color:var(--muted);text-align:center;margin-top:24px;">
+        <a href="/ui/leaderboard.html" style="color:var(--muted)">Public demo leaderboard</a> (self-reported, demo runs only)
+      </p>
     </main>
 
     <script src="/ui/app.js"></script>
