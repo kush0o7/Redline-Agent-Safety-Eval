@@ -1183,7 +1183,11 @@ def build_default_testcases() -> list[TestcaseSeed]:
     jbb_cases = _load_jailbreakbench_cases()
     if not jbb_cases:
         jbb_cases = _JBB_FALLBACK
-    return jbb_cases + _HANDCRAFTED + _BENIGN + _PERSONA_ATTACKS + _XSTEST + _CRESCENDO + _ADVANCED_ATTACKS + _HARMBENCH + _WILDGUARD
+    # Imported lazily: pack modules import TestcaseSeed from this module.
+    from app.evals.packs import DOMAIN_PACKS
+
+    core = jbb_cases + _HANDCRAFTED + _BENIGN + _PERSONA_ATTACKS + _XSTEST + _CRESCENDO + _ADVANCED_ATTACKS + _HARMBENCH + _WILDGUARD
+    return core + [case for pack in DOMAIN_PACKS.values() for case in pack]
 
 
 def load_default_testcases(db, project_id) -> int:

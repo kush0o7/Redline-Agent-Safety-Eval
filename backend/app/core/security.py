@@ -182,17 +182,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """Sliding-window rate limiter.
 
     Two tiers:
-    - /quick-eval POST: 5 requests per 5 minutes per IP (prevents LLM cost abuse)
+    - /quick-eval POST: EVAL_RATE_LIMIT requests (default 5) per 5 minutes per IP
+      (prevents LLM cost abuse)
     - everything else: per_minute + burst as configured
     """
 
-    EVAL_LIMIT = 5
     EVAL_WINDOW = 300  # seconds
 
     def __init__(self, app, per_minute: int, burst: int) -> None:
         super().__init__(app)
         self.per_minute = per_minute
         self.burst = burst
+        self.eval_limit = settings.eval_rate_limit
         self.requests: dict[str, deque[float]] = defaultdict(deque)
         self.eval_requests: dict[str, deque[float]] = defaultdict(deque)
         self._last_cleanup = time.time()
@@ -217,7 +218,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             bucket = self.eval_requests[ip]
             while bucket and now - bucket[0] > self.EVAL_WINDOW:
                 bucket.popleft()
-            if len(bucket) >= self.EVAL_LIMIT:
+            if len(bucket) >= self.eval_limit:
                 retry = int(self.EVAL_WINDOW - (now - bucket[0])) + 1
                 return JSONResponse(
                     status_code=429,

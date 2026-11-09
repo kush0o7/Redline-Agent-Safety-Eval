@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     log_level: str = Field("INFO", validation_alias="LOG_LEVEL")
     rate_limit_per_minute: int = Field(60, validation_alias="RATE_LIMIT_PER_MINUTE")
     rate_limit_burst: int = Field(20, validation_alias="RATE_LIMIT_BURST")
+    # POST /quick-eval requests allowed per IP per 5 minutes.
+    eval_rate_limit: int = Field(5, validation_alias="EVAL_RATE_LIMIT")
     dev_fake_provider: bool = Field(False, validation_alias="DEV_FAKE_PROVIDER")
     judge_model: str = Field("gpt-4o-mini", validation_alias="JUDGE_MODEL")
     judge_temperature: float = Field(0.0, validation_alias="JUDGE_TEMPERATURE")
