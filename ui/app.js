@@ -21,6 +21,34 @@ function getAdminKey() {
   return el ? el.value.trim() : "";
 }
 
+// Invite links (/ui/?invite=<token>) let someone run evals without the admin key; the same
+// token reads back the runs it created. Taken from the URL once, then kept for this browser.
+const INVITE_KEY = "redline_invite_token";
+(function captureInvite() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("invite");
+    if (token) {
+      localStorage.setItem(INVITE_KEY, token);
+      params.delete("invite");  // keep the token out of the address bar and history
+      const qs = params.toString();
+      history.replaceState(null, "", window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash);
+    }
+  } catch (e) { /* storage unavailable: the invite just isn't remembered */ }
+})();
+
+function getInviteToken() {
+  try { return localStorage.getItem(INVITE_KEY) || ""; } catch (e) { return ""; }
+}
+
+// Headers for runs and reads: the admin key if entered, otherwise the invite token.
+function authHeaders() {
+  const key = getAdminKey();
+  if (key) return { "X-Admin-Key": key };
+  const invite = getInviteToken();
+  return invite ? { "X-Invite-Token": invite } : {};
+}
+
 function setAuthStatus(ok) {
   const el = document.getElementById("authStatus");
   if (!el) return;
@@ -55,9 +83,7 @@ slider.addEventListener("input", () => { sliderLabel.textContent = slider.value;
 // ── API helpers ───────────────────────────────────────────────────────────────
 
 async function apiFetch(path, options = {}) {
-  const adminKey = getAdminKey();
-  const headers = { ...(options.headers || {}) };
-  if (adminKey) headers["X-Admin-Key"] = adminKey;
+  const headers = { ...(options.headers || {}), ...authHeaders() };
   if (options.body) headers["Content-Type"] = "application/json";
   const resp = await fetch(path, { ...options, headers });
   const data = await resp.json().catch(() => ({}));
@@ -79,7 +105,7 @@ async function publicFetch(path) {
     if (info.deployment === "demo") {
       document.getElementById("demoBanner")?.classList.remove("hidden");
     }
-    if (info.eval_auth_required && !getAdminKey()) {
+    if (info.eval_auth_required && !getAdminKey() && !getInviteToken()) {
       document.getElementById("adminSection")?.classList.add("visible");
     }
   } catch (e) { /* health unavailable — leave defaults */ }
@@ -307,10 +333,10 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
     if (useCustom && !endpointUrl) throw new Error("Agent endpoint URL is required.");
     if (packs.length === 0) throw new Error("Select at least one test pack.");
 
-    const authHeaders = getAdminKey() ? { "X-Admin-Key": getAdminKey() } : {};
+    const reqHeaders = authHeaders();
     const queued = await fetch("/quick-eval", {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders },
+      headers: { "Content-Type": "application/json", ...reqHeaders },
       body: JSON.stringify({
         mode,
         // rerun_of reuses the earlier run's exact cases, so count and packs don't apply
@@ -331,13 +357,12 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
 
     // Live status: SSE via the per-run stream token; fall back to polling.
     // (Never put the admin key in a URL — query strings end up in logs/history.)
-    const adminKey  = getAdminKey();
     const streamUrl = queued.stream_url;
 
     const watchViaPolling = async () => {
       for (let i = 0; i < 1200; i++) {
         await new Promise(r => setTimeout(r, 3000));
-        const data = await fetch(`/quick-eval/${run_id}`, { headers: authHeaders }).then(r => r.json()).catch(() => null);
+        const data = await fetch(`/quick-eval/${run_id}`, { headers: reqHeaders }).then(r => r.json()).catch(() => null);
         if (!data) continue;
         applyProgress(data.status, data.summary);
         if (data.status === "completed" || data.status === "failed") return data.status;
@@ -377,7 +402,7 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
 
     setProgress(88, "Fetching results…");
     const final = await fetch(`/quick-eval/${run_id}`, {
-      headers: adminKey ? { "X-Admin-Key": adminKey } : {},
+      headers: reqHeaders,
     }).then(r => r.json());
     setProgress(100, "Done.");
     renderResults(final);
@@ -537,15 +562,16 @@ function renderComparison(cmp, baseId, candId) {
   document.getElementById("compareResult").classList.remove("hidden");
 }
 
-// Outside demo mode the report needs the admin key, which a plain link can't send: fetch it
-// with the key and open the (self-contained, script-free) HTML from a blob URL instead.
+// Outside demo mode the report needs the admin key or invite token, which a plain link can't
+// send: fetch it with the header and open the (self-contained, script-free) HTML from a blob URL instead.
 document.getElementById("compareReportLink").addEventListener("click", async (ev) => {
   const url = ev.currentTarget.dataset.reportUrl;
-  if (!url || !getAdminKey()) return;  // demo mode: the plain link works
+  const headers = authHeaders();
+  if (!url || !Object.keys(headers).length) return;  // demo mode: the plain link works
   ev.preventDefault();
   const win = window.open("", "_blank");
   try {
-    const resp = await fetch(url, { headers: { "X-Admin-Key": getAdminKey() } });
+    const resp = await fetch(url, { headers });
     if (!resp.ok) throw new Error(resp.statusText);
     const blob = new Blob([await resp.text()], { type: "text/html" });
     if (win) win.location = URL.createObjectURL(blob);
@@ -565,7 +591,7 @@ document.getElementById("compareBtn").addEventListener("click", async () => {
   try {
     if (!baseId || !candId) throw new Error("Enter both run IDs.");
     const resp = await fetch(`/quick-eval/${encodeURIComponent(candId)}/compare?base_run_id=${encodeURIComponent(baseId)}`,
-      { headers: getAdminKey() ? { "X-Admin-Key": getAdminKey() } : {} });
+      { headers: authHeaders() });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.detail || resp.statusText);
     renderComparison(data, baseId, candId);

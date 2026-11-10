@@ -60,9 +60,18 @@ def test_compare_view_labels_simulated_models_and_sends_key():
     js = (UI / "app.js").read_text()
     assert 'id="compareSimulated"' in html and "Simulated models</strong> — illustrative results" in html
     assert 'startsWith("fake")' in js and 'getElementById("compareSimulated")' in js
-    # Outside demo mode compare + report need the key: the fetch sends it, the report opens from a blob.
-    assert '/compare?base_run_id=${encodeURIComponent(baseId)}`,\n      { headers: getAdminKey()' in js
-    assert "URL.createObjectURL(blob)" in js and '"X-Admin-Key": getAdminKey()' in js
+    # Outside demo mode compare + report need the key or invite: the fetch sends it, the report opens from a blob.
+    assert '/compare?base_run_id=${encodeURIComponent(baseId)}`,\n      { headers: authHeaders() }' in js
+    assert "URL.createObjectURL(blob)" in js and '"X-Admin-Key": key' in js
+
+
+def test_ui_sends_invite_token_from_invite_link():
+    js = (UI / "app.js").read_text()
+    # /ui/?invite=<token> (the link POST /admin/invite returns) is captured, stripped from the URL and sent.
+    assert 'params.get("invite")' in js and 'params.delete("invite")' in js and "history.replaceState" in js
+    assert '"X-Invite-Token": invite' in js
+    assert "...authHeaders()" in js  # apiFetch
+    assert "const reqHeaders = authHeaders();" in js  # POST /quick-eval, polling, final results
 
 
 def test_methodology_crescendo_figures_match_paper_table_4():

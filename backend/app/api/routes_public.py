@@ -22,6 +22,7 @@ from app.evals.comparison import build_comparison
 from app.evals.redaction import full_outputs_allowed, maybe_redact
 from app.reports.html_report import render_comparison_report, render_run_report
 from app.evals.testcases import TestcaseSeed, build_default_testcases
+from app.utils.hashing import stable_hash
 from app.core.config import settings
 from app.utils.tiers import load_tier_config, score_tier, tier_category, tier_style
 
@@ -80,20 +81,39 @@ def _stored_tier(summary: dict | None) -> str:
 
 # ── Quick eval (auth required, all-in-one convenience endpoint) ────────────────
 
+def _invite_hash(token: str) -> str:
+    return stable_hash(f"redline-invite:{token}")
+
+
+def _live_invite(db: Session, token: str | None) -> InviteToken | None:
+    """The invite row for this token if it still exists and hasn't expired (deleting the row revokes it)."""
+    if not token:
+        return None
+    now = datetime.now(timezone.utc)
+    return (
+        db.query(InviteToken)
+        .filter(InviteToken.token == token,
+                (InviteToken.expires_at.is_(None)) | (InviteToken.expires_at > now))
+        .first()
+    )
+
+
 def _verify_eval_access(
     x_admin_key: str | None = Header(default=None),
     x_invite_token: str | None = Header(default=None),
     db: Session = Depends(get_db),
-):
+) -> str | None:
     """Accept either the admin key OR a valid invite token.
 
-    Only enforced when REQUIRE_EVAL_AUTH=true — the public dashboard runs with
-    open evals, relying on the per-IP rate limit and queue-depth guard instead.
+    Returns the hash of the invite token used (stored on the run so the same token can
+    read it), or None for the admin key / open demo evals. Only enforced when eval auth
+    is required (REDLINE_ENV / REQUIRE_EVAL_AUTH); the demo relies on the per-IP rate
+    limit and queue-depth guard instead.
     """
     if not settings.require_eval_auth:
-        return
+        return None
     if constant_time_key_match(x_admin_key):
-        return
+        return None
     if x_invite_token:
         # Atomic decrement-and-check: guard against concurrent requests racing the
         # same near-exhausted invite past its max_uses limit (TOCTOU).
@@ -109,8 +129,23 @@ def _verify_eval_access(
         )
         db.commit()
         if updated:
-            return
+            return _invite_hash(x_invite_token)
     raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _invite_can_read(db: Session, token: str | None, run_ids: list[str]) -> bool:
+    """True when every run was created with this (still live) invite token."""
+    if not _live_invite(db, token):
+        return False
+    want = _invite_hash(token)
+    for rid in run_ids:
+        try:
+            run = db.get(Run, uuid.UUID(str(rid)))
+        except ValueError:
+            return False
+        if run is None or not run.invite_token_hash or not secrets.compare_digest(run.invite_token_hash, want):
+            return False
+    return True
 
 
 class QuickEvalCreate(BaseModel):
@@ -273,8 +308,9 @@ def _rerun_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project, lis
     return original.project, [by_id[i] for i in case_set.testcase_ids], list(original.excluded_categories or [])
 
 
-@router.post("/quick-eval", dependencies=[Depends(_verify_eval_access)])
-async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = Depends(get_db)):
+@router.post("/quick-eval")
+async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = Depends(get_db),
+                     invite_hash: str | None = Depends(_verify_eval_access)):
     """Create a project, seed test cases, and start a run in one call.
 
     Returns run_id + project_id immediately. Poll GET /quick-eval/{run_id} for results.
@@ -295,6 +331,11 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         raise HTTPException(status_code=503, detail="Server is busy — too many evals queued. Try again shortly.")
 
     if payload.rerun_of is not None:
+        if invite_hash:
+            # An invite may only rerun its own runs (the rerun reveals the original's case set).
+            original = db.get(Run, payload.rerun_of)
+            if original is not None and original.invite_token_hash != invite_hash:
+                raise HTTPException(status_code=404, detail="rerun_of run not found")
         project, testcases, excluded = _rerun_case_set(payload, db)
     else:
         project, testcases, excluded = _sample_new_case_set(payload, db)
@@ -317,6 +358,7 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         agent_endpoint_url=payload.agent_endpoint_url,
         agent_endpoint_key=encrypt_field(payload.agent_endpoint_key),
         stream_token=stream_token,
+        invite_token_hash=invite_hash,
     )
     db.add(run)
     db.commit()
@@ -339,15 +381,27 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
     }
 
 
-def _verify_read_access(x_admin_key: str | None = Header(default=None)) -> None:
+def _verify_read_access(
+    run_id: str,
+    base_run_id: str | None = None,
+    x_admin_key: str | None = Header(default=None),
+    x_invite_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> None:
     """Quick-eval reads (status, reports, compares).
 
-    Production and development (whenever eval auth is required, see REDLINE_ENV /
-    REQUIRE_EVAL_AUTH): the admin key is required. Demo mode only: anyone holding
-    the run id (an unguessable UUID) can read the run, so the hosted demo works.
+    Whenever eval auth is required (production and development, see REDLINE_ENV /
+    REQUIRE_EVAL_AUTH): the admin key, or the invite token that created the run(s).
+    A compare needs both runs to have been created with that token. The invite must
+    still exist and not be expired; max_uses limits new runs, not reads. Demo mode
+    only: anyone holding the run id (an unguessable UUID) can read the run.
     """
-    if settings.require_eval_auth and not constant_time_key_match(x_admin_key):
-        raise HTTPException(status_code=401, detail="Unauthorized: reading runs requires the X-Admin-Key header")
+    if not settings.require_eval_auth or constant_time_key_match(x_admin_key):
+        return
+    if x_invite_token and _invite_can_read(db, x_invite_token, [run_id] + ([base_run_id] if base_run_id else [])):
+        return
+    raise HTTPException(status_code=401, detail="Unauthorized: reading runs requires the X-Admin-Key header "
+                                                "or the invite token that created the run")
 
 
 @router.get("/quick-eval/{run_id}", dependencies=[Depends(_verify_read_access)])

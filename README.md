@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-267%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -94,7 +94,7 @@ make init                 # writes .env with a fresh ADMIN_API_KEY + FIELD_ENCRY
 docker compose up --build
 ```
 
-Open http://localhost:8001. Click **⚙️ admin**, paste the `ADMIN_API_KEY` from `.env`, and run an evaluation. Installs default to `REDLINE_ENV=production`, so every eval request needs the admin key (or an invite token).
+Open http://localhost:8001. Click **⚙️ admin**, paste the `ADMIN_API_KEY` from `.env`, and run an evaluation. Installs default to `REDLINE_ENV=production`, so every eval request needs the admin key (or an invite token). An invite link (`POST /admin/invite`) lets someone start runs and read back only the runs started with that token.
 
 **No API keys at all:** set `LLM_PROVIDER=fake`, `DEV_FAKE_PROVIDER=true` and `DEV_FAKE_JUDGE=true` to try the pipeline end to end with canned responses and a keyword judge.
 
@@ -331,7 +331,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 262 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 267 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

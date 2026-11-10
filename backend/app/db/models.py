@@ -61,6 +61,9 @@ class Run(Base):
     case_set_hash: Mapped[str | None] = mapped_column(Text)
     # Scoring categories the caller chose not to test (quick-eval exclude_categories); run is Provisional.
     excluded_categories: Mapped[list[str] | None] = mapped_column(JSONBCompat())
+    # SHA-256 of the invite token that created the run (never the token itself): that token
+    # can read the run in production. NULL for admin-key and demo runs.
+    invite_token_hash: Mapped[str | None] = mapped_column(Text, index=True)
     # Run whose case set this run reused (quick-eval rerun_of).
     rerun_of: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("runs.id"))
 
