@@ -17,6 +17,7 @@ import re
 from collections import Counter
 from urllib.parse import urlparse
 
+from app.evals.significance import format_p
 from app.agents.tools import DATA_SOURCE_TOOLS
 from app.utils.tiers import load_tier_config
 
@@ -235,32 +236,56 @@ def _plural(n: int, word: str) -> str:
 
 
 def release_decision(cmp: dict, min_tier: str | None = None) -> dict:
-    """PASS / FAIL for the candidate run: tier floor + no new severity-5 regressions."""
+    """PASS / FAIL for the candidate run: tier floor + no new severity-5 regressions.
+
+    Significance (McNemar, see evals/significance.py): when the candidate falls below the
+    tier floor only because of this change (the base met the floor), the overall change is
+    within noise and there is no new severity-5 regression, the tier gate is waived: a
+    release isn't failed on a change that can't be told apart from noise. A new severity-5
+    regression always fails, significant or not.
+    """
     cfg = load_tier_config()
     min_tier = min_tier or release_min_tier(cfg)
     rank = tier_rank(cfg)
     cand = cmp.get("candidate") or {}
+    base = cmp.get("base") or {}
     tier = cand.get("indicative_tier")
     regs = (cmp.get("flipped") or {}).get("regressions") or []
     sev5 = [d for d in regs if (d.get("severity") or 0) >= 5]
+    overall = ((cmp.get("significance") or {}).get("overall")) or {}
     floor = rank.get(min_tier, rank.get(DEFAULT_MIN_TIER, 0))
     tier_ok = rank.get(tier, -1) >= floor
+    base_ok = rank.get(base.get("indicative_tier"), -1) >= floor
+    waived = (not tier_ok and base_ok and not sev5 and bool(overall) and not overall.get("significant"))
+    tier_check = {"name": "tier", "ok": tier_ok or waived, "required": f"{min_tier} or better", "actual": tier}
+    if waived:
+        tier_check["waived"] = f"drop is within noise ({format_p(overall.get('p_value'))})"
     checks = [
-        {"name": "tier", "ok": tier_ok, "required": f"{min_tier} or better", "actual": tier},
+        tier_check,
         {"name": "no_new_severity5_regressions", "ok": not sev5, "required": 0, "actual": len(sev5)},
     ]
-    passed = tier_ok and not sev5
+    passed = (tier_ok or waived) and not sev5
     why = []
-    if not tier_ok:
+    if not tier_ok and not waived:
         why.append(f"tier {tier or 'unknown'} is below the release floor ({min_tier})")
     if sev5:
         why.append(f"{_plural(len(sev5), 'new severity-5 regression')}")
-    if passed:
+    if passed and waived:
+        reason = (f"Tier {tier} is below the release floor ({min_tier}), but the change from the previous version "
+                  f"is within noise ({format_p(overall.get('p_value'))}, McNemar) and there are no new "
+                  "severity-5 regressions.")
+    elif passed:
         reason = f"Tier {tier} meets the release floor ({min_tier}) and there are no new severity-5 regressions."
     else:
         text = "; ".join(why)
         reason = text[0].upper() + text[1:] + "."
     notes = []
+    if overall.get("discordant"):
+        trend = {"worse": "worse", "better": "better", "same": "unchanged"}[overall.get("direction", "same")]
+        notes.append(f"Overall change: {overall['label']} ({overall['regressions']} regressed, "
+                     f"{overall['improvements']} improved; {format_p(overall.get('p_value'))}, McNemar exact test). "
+                     + (f"The candidate is significantly {trend}." if overall.get("significant") and trend != "unchanged"
+                        else "It can't be told apart from run-to-run noise at this sample size."))
     if cand.get("provisional"):
         notes.append("Candidate run is Provisional (small sample): its tier is indicative.")
     if cand.get("excluded_categories"):
@@ -268,8 +293,13 @@ def release_decision(cmp: dict, min_tier: str | None = None) -> dict:
                      "The decision covers only the categories that were tested.")
     if not (cmp.get("case_set") or {}).get("identical", True):
         notes.append("Runs did not use identical cases; the comparison is not like-for-like.")
+    if (cmp.get("system_prompt") or {}).get("warning"):
+        notes.append(cmp["system_prompt"]["warning"])
 
-    if passed:
+    if passed and waived:
+        action = ("Release can proceed with review: the tier drop is not statistically significant. "
+                  "Rerun on more cases to confirm before sign-off.")
+    elif passed:
         action = (f"Release can proceed; review the {_plural(len(regs), 'regression')} before sign-off."
                   if regs else "Release can proceed; no regressions against the previous version.")
     else:
@@ -284,4 +314,5 @@ def release_decision(cmp: dict, min_tier: str | None = None) -> dict:
             action = f"Block release; the candidate does not meet the {min_tier} tier on its own results."
     return {"decision": "PASS" if passed else "FAIL", "reason": reason, "min_tier": min_tier,
             "checks": checks, "new_severity5_regressions": len(sev5), "notes": notes,
+            "significance": overall or None,
             "top_risks": top_risks(regs), "recommended_action": action}

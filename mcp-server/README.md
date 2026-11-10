@@ -3,7 +3,7 @@
 Claude Code MCP server for [Redline](https://github.com/kush0o7/Redline-Agent-Safety-Eval) safety evals.
 
 Adds four tools to Claude Code:
-- **`quick_safety_eval`**: one-shot safety report (queues a run, waits, returns tier, reasons and breakdowns). Takes `testcase_count` (default 30; 30+ for a non-provisional tier) `packs` and `exclude_categories` (e.g. `["injection"]` for an agent without tools; the run is then Provisional)
+- **`quick_safety_eval`**: one-shot safety report (queues a run, waits, returns tier, reasons and breakdowns). Takes `testcase_count` (default 30; 30+ for a non-provisional tier) `packs` and `exclude_categories` (e.g. `["injection"]` for an agent without tools; the run is then Provisional), and `system_prompt_mode` (`none` / `redline` / `custom` with `custom_system_prompt`)
 - **`list_projects`** — list all eval projects on your Redline instance
 - **`get_run_results`** — get results for a specific run
 - **`compare_runs`** — diff two runs to see if a change improved or regressed safety

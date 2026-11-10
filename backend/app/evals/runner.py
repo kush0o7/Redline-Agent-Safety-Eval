@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.baseline_agent import BaselineAgent
 from app.agents.debate_agent import DebateAgent
+from app.agents.system_prompt import describe_run, prompt_text
 from app.agents.interface import AgentUnderTest
 from app.core.config import settings
 from app.db.models import AnalyticsEvent, Run, RunResult, Testcase, Trace
@@ -81,10 +82,12 @@ async def execute_run(
     results_payload = []
     testcase_ids = run.summary.get("testcase_ids") if isinstance(run.summary, dict) else None
     tier_cfg = load_tier_config()
+    system_prompt = prompt_text(run.system_prompt_mode, run.custom_system_prompt)
+    system_prompt_info = describe_run(run)
 
     for i, testcase in enumerate(testcases):
         trace_events = [
-            {"t": "system", "msg": f"{run.mode} agent start", "ts": now_iso()},
+            {"t": "system", "msg": f"{run.mode} agent start; system prompt: {system_prompt_info['label']}", "ts": now_iso()},
             {"t": "user", "msg": testcase.prompt, "ts": now_iso()},
         ]
         # Tool results the agent receives. Injection cases carry them in their
@@ -100,6 +103,7 @@ async def execute_run(
             "trace_events": trace_events,
             "tool_outputs": tool_outputs,
             "tool_names": list(scenario.get("tools") or []),
+            "system_prompt": system_prompt,
         }
         response = await _run_with_retries(agent, testcase, context, run.seed, provider)
 
@@ -167,6 +171,7 @@ async def execute_run(
         summary["testcase_ids"] = testcase_ids
     if run.excluded_categories:
         summary["excluded_categories"] = list(run.excluded_categories)
+    summary["system_prompt"] = system_prompt_info
     run.summary = summary
     run.finished_at = datetime.now(timezone.utc)
     run.status = "completed"

@@ -74,6 +74,10 @@ document.getElementById("saveKey")?.addEventListener("click", () => {
   if (key) { localStorage.setItem("redline_admin_key", key); setAuthStatus(true); }
 });
 
+document.getElementById("systemPromptMode")?.addEventListener("change", (ev) => {
+  document.getElementById("customSystemPromptRow").classList.toggle("hidden", ev.target.value !== "custom");
+});
+
 // ── Slider ────────────────────────────────────────────────────────────────────
 
 const slider = document.getElementById("testcaseCount");
@@ -330,7 +334,11 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
     const endpointUrl = useCustom ? document.getElementById("agentEndpointUrl").value.trim() : undefined;
     const endpointKey = useCustom ? document.getElementById("agentEndpointKey").value.trim() : undefined;
 
+    const spMode      = document.getElementById("systemPromptMode").value || undefined;
+    const spCustom    = spMode === "custom" ? document.getElementById("customSystemPrompt").value.trim() : undefined;
+
     if (useCustom && !endpointUrl) throw new Error("Agent endpoint URL is required.");
+    if (spMode === "custom" && !spCustom) throw new Error("Paste your system prompt, or pick another system prompt option.");
     if (packs.length === 0) throw new Error("Select at least one test pack.");
 
     const reqHeaders = authHeaders();
@@ -344,6 +352,8 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
         ...(model       && { model }),
         ...(endpointUrl && { agent_endpoint_url: endpointUrl }),
         ...(endpointKey && { agent_endpoint_key: endpointKey }),
+        ...(spMode      && { system_prompt_mode: spMode }),
+        ...(spCustom    && { custom_system_prompt: spCustom }),
       }),
     }).then(r => r.json());
 
@@ -518,6 +528,16 @@ function compareAnswer(d, text, passed) {
   return flat.length <= 80 ? "[harmful content — redacted]" : `${esc(flat.slice(0, 80))}… [harmful content — redacted]`;
 }
 
+// McNemar's exact test on the flipped cases (evals/significance.py): "significant (p<0.05)",
+// "within noise" or "no change".
+function sigHtml(sig) {
+  if (!sig) return "—";
+  if (sig.label === "no change") return `<span style="color:var(--muted)">no change</span>`;
+  const p = sig.p_value < 0.001 ? "p<0.001" : `p=${Number(sig.p_value).toFixed(3)}`;
+  const color = sig.significant ? (sig.direction === "worse" ? "#ef4444" : "#22c55e") : "var(--muted)";
+  return `<span style="color:${color}">${esc(sig.label)}</span> <span style="color:var(--muted)">(−${sig.regressions}/+${sig.improvements}, ${p})</span>`;
+}
+
 function renderComparison(cmp, baseId, candId) {
   const tc = cmp.tier_change || {};
   const regs = (cmp.flipped || {}).regressions || [];
@@ -530,13 +550,19 @@ function renderComparison(cmp, baseId, candId) {
     <div><span class="compare-k">Tier</span> ${esc(tc.from || "—")} → ${esc(tc.to || "—")} ${tc.direction === "down" ? "⬇️" : tc.direction === "up" ? "⬆️" : ""}</div>
     <div><span class="compare-k">Models</span> ${esc((cmp.base || {}).model || "?")} → ${esc((cmp.candidate || {}).model || "?")}</div>
     <div><span class="compare-k">Flipped</span> ${regs.length} regression${regs.length === 1 ? "" : "s"} · ${imps.length} improvement${imps.length === 1 ? "" : "s"} (of ${cmp.common_total} shared cases)</div>
+    <div><span class="compare-k">Significance</span> ${sigHtml((cmp.significance || {}).overall)}</div>
+    <div><span class="compare-k">System prompt</span> ${esc(((cmp.base || {}).system_prompt || {}).label || "Redline default")} → ${esc(((cmp.candidate || {}).system_prompt || {}).label || "Redline default")}</div>
     ${cmp.release ? `<div><span class="compare-k">Release</span> <strong style="color:${cmp.release.decision === "PASS" ? "#22c55e" : "#ef4444"}">${esc(cmp.release.decision)}</strong> — ${esc(cmp.release.reason)}<br><span style="color:var(--muted)">${esc(cmp.release.recommended_action)}</span></div>` : ""}`;
   const warn = document.getElementById("compareWarning");
   const cs = cmp.case_set || {};
-  warn.textContent = cs.identical ? "" : `⚠️ ${cs.warning || "These runs did not use identical cases."}`;
-  warn.classList.toggle("hidden", !!cs.identical);
+  const sp = cmp.system_prompt || {};
+  const warnings = [];
+  if (!cs.identical) warnings.push(`⚠️ ${cs.warning || "These runs did not use identical cases."}`);
+  if (sp.warning) warnings.push(`⚠️ ${sp.warning}`);
+  warn.textContent = warnings.join(" ");
+  warn.classList.toggle("hidden", warnings.length === 0);
   document.getElementById("compareCategories").innerHTML = Object.entries(cmp.categories || {}).map(([name, g]) =>
-    `<tr><td>${esc(name)}</td><td>${groupCell(g.base)}</td><td>${groupCell(g.candidate)}</td><td>${ptsHtml(g.delta)}</td></tr>`).join("");
+    `<tr><td>${esc(name)}</td><td>${groupCell(g.base)}</td><td>${groupCell(g.candidate)}</td><td>${ptsHtml(g.delta)}</td><td>${sigHtml(g.significance)}</td></tr>`).join("");
   document.getElementById("compareFlipCount").textContent = String(regs.length);
   document.getElementById("compareFlips").innerHTML = [...regs.map(d => [d, "pass → fail"]), ...imps.map(d => [d, "fail → pass"])].map(([d, dir]) => {
     const evidence = (d.evidence || []).map(e => esc(e)).join("<br>");

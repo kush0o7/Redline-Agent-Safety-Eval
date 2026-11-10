@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.agents.system_prompt import describe_run
+from app.evals.significance import ALPHA, TEST_NAME, paired_change
 from app.db.models import Run, RunResult, Testcase
 from app.evals.case_sets import case_set_for_run, compare_case_sets
 from app.evals.redaction import maybe_redact
@@ -46,6 +48,7 @@ def run_brief(run: Run) -> dict:
         "case_set_hash": run.case_set_hash,
         "rerun_of": str(run.rerun_of) if run.rerun_of else None,
         "excluded_categories": list(run.excluded_categories or []),
+        "system_prompt": describe_run(run),
         "decided_by": summary.get("decided_by", {}),
     }
 
@@ -113,6 +116,28 @@ def _seeded_text(tc: Testcase | None) -> str:
     return " ".join(str(o.get("result", "")) for o in outs)[:4000]
 
 
+def compare_system_prompts(base: dict, cand: dict) -> dict:
+    """Did both runs give the target the same system prompt? (mode + custom prompt hash)"""
+    b, c = base.get("system_prompt") or {}, cand.get("system_prompt") or {}
+    same = (b.get("mode"), b.get("custom_sha256")) == (c.get("mode"), c.get("custom_sha256"))
+    return {"identical": same, "base": b.get("label"), "candidate": c.get("label"),
+            "warning": None if same else (f"The runs used different system prompts (before: {b.get('label')}; "
+                                          f"after: {c.get('label')}), so a change may come from the prompt, not the model.")}
+
+
+def significance_block(regressions: list[dict], improvements: list[dict], categories: dict) -> dict:
+    """McNemar's exact test overall and per scoring category (discordant pairs = flipped cases)."""
+    def count(items, cat):
+        return sum(1 for d in items if (d.get("category") or d.get("type")) == cat)
+    cats = sorted(set(categories) | {d.get("category") or d.get("type") for d in regressions + improvements} - {None})
+    return {
+        "test": TEST_NAME,
+        "alpha": ALPHA,
+        "overall": paired_change(len(regressions), len(improvements)),
+        "categories": {c: paired_change(count(regressions, c), count(improvements, c)) for c in cats},
+    }
+
+
 def build_comparison(db: Session, base_run: Run, candidate_run: Run, *, include_full_outputs: bool = False) -> dict:
     """Comparison of two runs. Answers to harmful requests are redacted unless include_full_outputs."""
     case_set = compare_case_sets(case_set_for_run(db, base_run), case_set_for_run(db, candidate_run))
@@ -138,10 +163,12 @@ def build_comparison(db: Session, base_run: Run, candidate_run: Run, *, include_
         "categories": _group_deltas(base_summary.get("tier_categories") or {}, cand_summary.get("tier_categories") or {}),
         "packs": _group_deltas(base_summary.get("packs") or {}, cand_summary.get("packs") or {}),
         "case_set": case_set,
+        "system_prompt": compare_system_prompts(base_brief, cand_brief),
     }
     if not common:
         out.update({"pass_rate_delta": None, "metrics": {}, "changed_testcases": [],
                     "flipped": {"regressions": [], "improvements": []}})
+        out["significance"] = significance_block([], [], out["categories"])
         out["release"] = release_decision(out)
         out["outputs_redacted"] = not include_full_outputs
         return out
@@ -177,6 +204,11 @@ def build_comparison(db: Session, base_run: Run, candidate_run: Run, *, include_
     })
     for d in details:
         d["impact"] = injection_impact(d) if d.get("type") == "injection" else None
+    out["significance"] = significance_block(out["flipped"]["regressions"], out["flipped"]["improvements"],
+                                             out["categories"])
+    for cat, sig in out["significance"]["categories"].items():
+        if cat in out["categories"]:
+            out["categories"][cat]["significance"] = sig
     out["release"] = release_decision(out)
     for d in details:
         d.pop("data_text", None)  # only needed to word the impact; the prompt and evidence carry the rest

@@ -109,6 +109,8 @@ async def quick_safety_eval(
     packs: list[str] | None = None,
     rerun_of: str | None = None,
     exclude_categories: list[str] | None = None,
+    system_prompt_mode: str | None = None,
+    custom_system_prompt: str | None = None,
 ) -> str:
     """Run a full safety evaluation using the configured agent (REDLINE_URL + REDLINE_API_KEY).
 
@@ -125,6 +127,10 @@ async def quick_safety_eval(
             When set, testcase_count, packs, project_name and exclude_categories are ignored.
         exclude_categories: Scoring categories not to test, e.g. ["injection"] for an agent without
             tool calling. The run is then Provisional (its tier is indicative only).
+        system_prompt_mode: 'none', 'redline' (Redline's generic prompt; the default for a plain model)
+            or 'custom' (with custom_system_prompt, e.g. your production prompt). A rerun reuses the
+            original run's choice unless this is set.
+        custom_system_prompt: Your system prompt, used with system_prompt_mode='custom'.
     """
     async with httpx.AsyncClient(timeout=30) as client:
         payload: dict[str, Any] = {"mode": mode, "seed": 7}
@@ -140,6 +146,10 @@ async def quick_safety_eval(
             payload["packs"] = packs
         if exclude_categories and not rerun_of:
             payload["exclude_categories"] = exclude_categories
+        if system_prompt_mode:
+            payload["system_prompt_mode"] = system_prompt_mode
+        if custom_system_prompt:
+            payload["custom_system_prompt"] = custom_system_prompt
 
         resp = await client.post(f"{REDLINE_URL}/quick-eval", json=payload, headers=_headers())
         if resp.status_code != 200:

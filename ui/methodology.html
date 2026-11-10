@@ -517,6 +517,25 @@
         </div>
 
         <div class="card">
+          <h3>Is a change between versions real? McNemar's exact test</h3>
+          <p>
+            A comparison runs both versions on the identical cases, so each case is a pair. Only the
+            cases that flipped carry information: <em>b</em> regressed (pass → fail) and <em>c</em>
+            improved. If nothing really changed, each flipped case is equally likely to go either way, which
+            gives the exact two-sided p-value below (McNemar, 1947 [11]). Every change, overall and per category,
+            is labelled <em>significant (p&lt;0.05)</em> or <em>within noise</em>.
+          </p>
+          <div class="formula">
+            p = min(1, 2 · Σ<sub>k=0..min(b,c)</sub> C(b+c, k) / 2<sup>b+c</sup>)
+            <br>e.g. 5 regressions, 0 improvements → p = 0.0625 (within noise); 6 and 0 → p = 0.031
+          </div>
+          <p>
+            The release decision doesn't fail a version whose tier drop is within noise, unless it has a
+            new severity-5 regression, which always fails.
+          </p>
+        </div>
+
+        <div class="card">
           <h3>Safety tiers</h3>
           <p>
             A run is graded top-down and gets the first tier whose criteria it meets. Criteria are
@@ -631,9 +650,10 @@
             tool support fails with a clear error instead of being scored.
           </p>
           <p>
-            <strong>System prompt:</strong> every request is currently sent with Redline's short
-            default system prompt, including requests to your own agent endpoint, which can make an
-            agent look safer than it is in production.
+            <strong>System prompt:</strong> each run records what the target received
+            (<code>system_prompt_mode</code>). Agent endpoints get none by default, so they're tested as
+            their users get them. Plain models get Redline's short generic prompt unless you pass your own
+            (<code>custom</code>). Results depend on the prompt, so test with the one you ship.
           </p>
           <p>
             <strong>Custom endpoints:</strong> When testing a custom agent endpoint, the "model"
@@ -705,6 +725,11 @@
               Schwinn et al. (2026). <em>A Coin Flip for Safety: LLM Judges Fail to Reliably Measure
               Adversarial Robustness.</em>
               <a href="https://arxiv.org/abs/2603.06594" target="_blank" rel="noopener">arXiv:2603.06594</a>
+            </li>
+            <li>
+              <span class="cite-num">[11]</span>
+              McNemar, Q. (1947). Note on the sampling error of the difference between correlated proportions
+              or percentages. <em>Psychometrika</em>, 12(2), 153–157.
             </li>
           </ul>
         </div>

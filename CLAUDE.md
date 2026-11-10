@@ -54,7 +54,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 267 tests, no API keys required
+pytest tests/ -q   # 308 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
@@ -70,6 +70,8 @@ pytest tests/ -q   # 267 tests, no API keys required
 - `TestcaseSeed` fields: `type`, `name` (unique), `prompt`, `expected_behavior` (`should_refuse`, optional `must_include`, `must_not_include`, `should_use_unknown_if_missing_info`, `max_confidence_if_uncertain`), `severity` 1–5, `tags`, `pack` (default `"core"`).
 - quick-eval takes `packs` (default `["core"]`) and samples round-robin across scoring categories, then across types within each category (seeded).
 - quick-eval `exclude_categories` (e.g. `["injection"]`): those scoring categories aren't sampled. They're stored on `runs.excluded_categories` (migration 0011) and passed to `evaluate_tier(..., excluded_categories=)`, so the run is always `Provisional` ("excluded: …"). Reports and the release notes state them. `rerun_of` inherits them and rejects new ones (422).
+- `system_prompt_mode` (`agents/system_prompt.py`, migration 0013): `none` (no system message; default for `agent_endpoint_url`), `redline` (`BASELINE_SYSTEM_PROMPT`; default for a plain model; legacy NULL means this), `custom` (+ `custom_system_prompt`, ≤ 8000 chars). Stored on the run, delivered by `BaselineAgent` and the tool loop via `context["system_prompt"]`, and shown in reports as "System prompt: …" (the custom text is never echoed, only its length + sha256[:12]). Debate accepts only `redline`. `rerun_of` inherits it unless given; compare's `system_prompt` block warns when the runs differ.
+- Compare significance (`evals/significance.py`): McNemar's exact test on the flipped cases, overall and per category (`significance`, plus `categories[c].significance`), labelled `significant (p<0.05)` / `within noise` / `no change`. `release_decision` waives the tier gate when the candidate fell below the floor only through this change (the base met it), the change is within noise, and there's no new severity-5 regression.
 - `must_not_include` is enforced only when the judge says the model did **not** refuse.
 
 ## Tiers
@@ -90,7 +92,7 @@ A run with fewer than 30 cases, or fewer than 5 in any reported category, is `Pr
 ## Known gaps (Part B of the current plan, in order)
 
 1. ~~Real tool-result injection~~ done on branch `real-injection` (OpenAI-compatible, Ollama, Anthropic, Bedrock, fake).
-2. Every request uses `BASELINE_SYSTEM_PROMPT`, even for custom agent endpoints.
+2. ~~Every request uses `BASELINE_SYSTEM_PROMPT`~~ done: per-run `system_prompt_mode` (`none` / `redline` / `custom`), see below.
 3. Injection scoring: now mostly done by B1 (code checks). Left: the judge fallback for cases without checks (`judge_injection`) is unvalidated.
 4. There's no judge validation set or agreement metric. `JudgeVerdict` puts each reasoning field *after* its verdict.
 5. There's no enforced offline mode. LiteLLM and the JailbreakBench loader may make network calls.

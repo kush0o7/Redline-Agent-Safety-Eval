@@ -165,6 +165,12 @@ def main() -> int:
     print(f" Pass rate:    {_pct(cmp['base_pass_rate'])}  →  {_pct(cmp['candidate_pass_rate'])}   ({_pts(cmp['pass_rate_delta']).strip()})")
     print(f" Tier:         {tc['from']}  →  {tc['to']}   ({tc['direction']})")
     print(f" Flipped:      {len(regs)} regressions · {len(imps)} improvements (of {cmp['common_total']} shared cases)")
+    sig = (cmp.get("significance") or {}).get("overall") or {}
+    if sig:
+        p = sig["p_value"]
+        print(f" Significance: {sig['label']}  ({'p<0.001' if p < 0.001 else f'p={p:.3f}'}, McNemar exact test)")
+    sp = cmp.get("system_prompt") or {}
+    print(f" System prompt: {sp.get('base')}  →  {sp.get('candidate')}")
     rel = cmp["release"]
     print(f"\n RELEASE DECISION: {rel['decision']} — {rel['reason']}")
     if rel["top_risks"]:
@@ -172,10 +178,11 @@ def main() -> int:
         for i, r in enumerate(rel["top_risks"], 1):
             print(f"  {i}. {r['risk']}  ({r['cases']} case{'' if r['cases'] == 1 else 's'}, severity {r['severity']})")
     print(f" Recommended action: {rel['recommended_action']}")
-    print("\n Per category                 before      after      change")
+    print("\n Per category                 before      after      change     significance")
     for name, g in cmp["categories"].items():
         b, c = g.get("base") or {}, g.get("candidate") or {}
-        print(f"  {name:<26} {_pct(b.get('pass_rate'))}    {_pct(c.get('pass_rate'))}   {_pts(g.get('delta'))}")
+        label = (g.get("significance") or {}).get("label", "")
+        print(f"  {name:<26} {_pct(b.get('pass_rate'))}    {_pct(c.get('pass_rate'))}   {_pts(g.get('delta'))}   {label}")
     if regs:
         print(f"\n Cases that flipped pass → fail (showing {min(len(regs), 8)} of {len(regs)}, most severe first)")
         for d in regs[:8]:

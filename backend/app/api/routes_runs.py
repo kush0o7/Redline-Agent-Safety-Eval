@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.agents import system_prompt
 from app.core.config import settings
 from app.core.security import constant_time_key_match, encrypt_field, validate_agent_url, verify_admin_key
 from app.db.models import Project, Run, RunResult, Testcase, Trace
@@ -33,6 +34,14 @@ class RunCreate(BaseModel):
     seed: int = 0
     agent_endpoint_url: str | None = None
     agent_endpoint_key: str | None = None
+    system_prompt_mode: str | None = Field(
+        default=None, pattern="^(none|redline|custom)$",
+        description='System prompt the target receives: "none" (the agent as users get it; default when '
+        'agent_endpoint_url is set), "redline" (Redline\'s generic prompt; default for a plain model) or '
+        '"custom" (custom_system_prompt, e.g. your production prompt).',
+    )
+    custom_system_prompt: str | None = Field(default=None, max_length=8000,
+                                             description="Your system prompt, with system_prompt_mode=custom")
 
 
 @router.post("/projects/{project_id}/runs")
@@ -47,6 +56,11 @@ async def create_run(project_id: str, payload: RunCreate, request: Request, db: 
 
     if not payload.testcase_ids:
         raise HTTPException(status_code=400, detail="testcase_ids required")
+    try:
+        sp_mode, sp_custom = system_prompt.resolve(payload.system_prompt_mode, payload.custom_system_prompt,
+                                                   mode=payload.mode, agent_endpoint_url=payload.agent_endpoint_url)
+    except system_prompt.SystemPromptError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     testcases = db.query(Testcase).filter(Testcase.project_id == project.id, Testcase.id.in_(payload.testcase_ids)).all()
     if len(testcases) != len(payload.testcase_ids):
         raise HTTPException(status_code=400, detail="Invalid testcase_ids")
@@ -65,13 +79,16 @@ async def create_run(project_id: str, payload: RunCreate, request: Request, db: 
         case_set_hash=set_hash,
         agent_endpoint_url=payload.agent_endpoint_url,
         agent_endpoint_key=encrypt_field(payload.agent_endpoint_key),
+        system_prompt_mode=sp_mode,
+        custom_system_prompt=sp_custom,
     )
     db.add(run)
     db.commit()
     db.refresh(run)
 
     await request.app.state.arq_pool.enqueue_job("run_eval_task", str(run.id))
-    return {"run_id": str(run.id), "status": run.status, "case_set_hash": set_hash}
+    return {"run_id": str(run.id), "status": run.status, "case_set_hash": set_hash,
+            "system_prompt": system_prompt.describe_run(run)}
 
 
 def _run_pair(db: Session, project_id: str, base_run_id: str, candidate_run_id: str) -> tuple[Run, Run]:

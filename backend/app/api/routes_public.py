@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.agents import system_prompt
 from app.core.security import constant_time_key_match, decrypt_field, encrypt_field, validate_agent_url, verify_admin_key
 from app.db.models import AnalyticsEvent, InviteToken, Project, Run, RunResult, Testcase
 from app.db.session import get_db
@@ -167,8 +168,17 @@ class QuickEvalCreate(BaseModel):
         default=None,
         description="Rerun the exact case set of this earlier run (same project, same testcase rows) "
         "so the two runs can be compared like-for-like. Cannot be combined with testcase_count, packs, name "
-        "or exclude_categories (the original run's exclusions are reused).",
+        "or exclude_categories (the original run's exclusions are reused). The original run's system prompt "
+        "is reused unless system_prompt_mode is given (the compare then flags the difference).",
     )
+    system_prompt_mode: str | None = Field(
+        default=None, pattern="^(none|redline|custom)$",
+        description='System prompt the target receives: "none" (the agent as users get it; default when '
+        'agent_endpoint_url is set), "redline" (Redline\'s generic prompt; default for a plain model) or '
+        '"custom" (custom_system_prompt, e.g. your production prompt).',
+    )
+    custom_system_prompt: str | None = Field(default=None, max_length=8000,
+                                             description="Your system prompt, with system_prompt_mode=custom")
 
 
 def _select_testcase_seeds(seeds: list[TestcaseSeed], count: int, seed: int) -> list[TestcaseSeed]:
@@ -308,6 +318,18 @@ def _rerun_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project, lis
     return original.project, [by_id[i] for i in case_set.testcase_ids], list(original.excluded_categories or [])
 
 
+def _system_prompt_for(payload: QuickEvalCreate, db: Session) -> tuple[str, str | None]:
+    """The run's system prompt. A rerun keeps the original's unless the caller chooses one."""
+    if payload.rerun_of is not None and payload.system_prompt_mode is None and payload.custom_system_prompt is None:
+        original = db.get(Run, payload.rerun_of)
+        if original is not None:
+            if payload.mode == "debate" or original.mode == "debate":
+                return system_prompt.resolve(None, None, mode=payload.mode, agent_endpoint_url=payload.agent_endpoint_url)
+            return original.system_prompt_mode or "redline", original.custom_system_prompt
+    return system_prompt.resolve(payload.system_prompt_mode, payload.custom_system_prompt,
+                                 mode=payload.mode, agent_endpoint_url=payload.agent_endpoint_url)
+
+
 @router.post("/quick-eval")
 async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = Depends(get_db),
                      invite_hash: str | None = Depends(_verify_eval_access)):
@@ -329,6 +351,11 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         pending = 0
     if pending > settings.max_queued_jobs:
         raise HTTPException(status_code=503, detail="Server is busy — too many evals queued. Try again shortly.")
+
+    try:
+        sp_mode, sp_custom = _system_prompt_for(payload, db)
+    except system_prompt.SystemPromptError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
     if payload.rerun_of is not None:
         if invite_hash:
@@ -359,6 +386,8 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         agent_endpoint_key=encrypt_field(payload.agent_endpoint_key),
         stream_token=stream_token,
         invite_token_hash=invite_hash,
+        system_prompt_mode=sp_mode,
+        custom_system_prompt=sp_custom,
     )
     db.add(run)
     db.commit()
@@ -376,6 +405,7 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         "case_set_hash": set_hash,
         "rerun_of": str(payload.rerun_of) if payload.rerun_of else None,
         "excluded_categories": excluded,
+        "system_prompt": system_prompt.describe_run(run),
         "results_url": f"/quick-eval/{run_id}",
         "stream_url": f"/projects/{project_id}/runs/{run_id}/stream?token={stream_token}",
     }
@@ -425,6 +455,7 @@ def quick_eval_status(run_id: str, include_full_outputs: bool = False, x_admin_k
         "case_set_hash": run.case_set_hash,
         "rerun_of": str(run.rerun_of) if run.rerun_of else None,
         "excluded_categories": list(run.excluded_categories or []),
+        "system_prompt": system_prompt.describe_run(run),
     }
 
     if run.status == "completed":

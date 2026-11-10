@@ -1,7 +1,7 @@
 """Run an agent through a tool-using scenario where injected text arrives as a real tool result.
 
 Conversation shape sent to the model:
-    system → user task → assistant(tool_call: seeded data tool) → tool(result with injection)
+    [system →] user task → assistant(tool_call: seeded data tool) → tool(result with injection)
     → model turn(s) … each model tool call is executed against stubs and fed back,
     up to MAX_STEPS model turns.
 
@@ -22,7 +22,7 @@ MAX_STEPS = 4
 async def run_tool_scenario(
     *,
     provider,
-    system_prompt: str,
+    system_prompt: str | None,
     user_task: str,
     tool_outputs: list[dict],
     tool_names: list[str],
@@ -32,8 +32,7 @@ async def run_tool_scenario(
     temperature: float = 0.2,
 ) -> AgentResponse:
     tools = specs_for(tool_names, tool_outputs)
-    messages: list[LLMMessage] = [
-        LLMMessage(role="system", content=system_prompt),
+    messages: list[LLMMessage] = ([LLMMessage(role="system", content=system_prompt)] if system_prompt else []) + [
         LLMMessage(role="user", content=user_task),
     ]
 

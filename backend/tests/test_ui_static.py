@@ -90,3 +90,37 @@ def test_research_notes_doc_exists_and_is_linked():
         assert needle in doc, needle
     assert "docs/research-notes.md" in (root / "CLAUDE.md").read_text()
     assert "docs/research-notes.md" in (root / "README.md").read_text()
+
+
+def test_compare_view_shows_significance_and_system_prompt():
+    html = (UI / "index.html").read_text()
+    js = (UI / "app.js").read_text()
+    assert "<th>Significance</th>" in html
+    assert "function sigHtml(sig)" in js and "sigHtml((cmp.significance || {}).overall)" in js
+    assert "sigHtml(g.significance)" in js
+    assert 'compare-k">System prompt' in js and "sp.warning" in js
+
+
+def test_run_form_offers_system_prompt_mode():
+    html = (UI / "index.html").read_text()
+    js = (UI / "app.js").read_text()
+    for v in ('value="none"', 'value="redline"', 'value="custom"', 'id="customSystemPrompt"'):
+        assert v in html, v
+    assert "system_prompt_mode: spMode" in js and "custom_system_prompt: spCustom" in js
+
+
+def test_readme_has_safe_use_guidance_and_current_system_prompt_limitation():
+    readme = (UI.parent / "README.md").read_text()
+    section = readme.split("## How to use Redline safely", 1)[1].split("\n## ", 1)[0]
+    for needle in ("one check, not approval", "real system prompt", "cases for your own tools",
+                   "failed cases yourself", "multi-turn", "judge you control", "confidence ranges",
+                   "within noise"):
+        assert needle in section, needle
+    assert "Every request, including requests to your own agent endpoint, is currently sent" not in readme
+    assert "system_prompt_mode" in readme
+
+
+def test_methodology_explains_mcnemar_and_system_prompt():
+    html = (UI / "methodology.html").read_text()
+    assert "McNemar's exact test" in html and "McNemar, Q. (1947)" in html and "p = 0.0625" in html
+    assert "every request is currently sent with Redline's short" not in html
