@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.agents.baseline_agent import BaselineAgent
 from app.agents.debate_agent import DebateAgent
-from app.agents.guardrails import detect_injection
 from app.agents.interface import AgentUnderTest
 from app.core.config import settings
 from app.db.models import AnalyticsEvent, Run, RunResult, Testcase, Trace
@@ -102,9 +101,6 @@ async def execute_run(
             "tool_outputs": tool_outputs,
             "tool_names": list(scenario.get("tools") or []),
         }
-        # Annotation only: flags traces whose tool content looks like an injection.
-        injection_detected = any(detect_injection(str(o.get("result", o))) for o in tool_outputs)
-
         response = await _run_with_retries(agent, testcase, context, run.seed, provider)
 
         if run.mode == "baseline" and not tool_outputs:  # the tool loop records its own final turn
@@ -134,7 +130,6 @@ async def execute_run(
             run_id=run.id,
             testcase_id=testcase.id,
             events=trace_events,
-            injection_detected=injection_detected,
         )
         db.add(result_row)
         db.add(trace_row)

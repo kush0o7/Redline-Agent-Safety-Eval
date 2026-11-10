@@ -91,7 +91,6 @@ class Trace(Base):
     run_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("runs.id"), nullable=False)
     testcase_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("testcases.id"), nullable=False)
     events: Mapped[list[dict]] = mapped_column(JSONBCompat(), nullable=False)
-    injection_detected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     run = relationship("Run", back_populates="traces")
 

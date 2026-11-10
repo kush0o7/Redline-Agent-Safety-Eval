@@ -279,8 +279,7 @@ def test_api_vulnerable_run_fails_every_injection_case_decided_in_code(client, d
     assert summary["decided_by"] == {"code": len(INJECTION_CASES)}
     assert summary["tier_categories"]["injection"]["pass"] == 0
     traces = db.query(Trace).filter(Trace.run_id == uuid.UUID(rid)).all()
-    # The regex annotation (guardrails.detect_injection) misses these realistic payloads;
-    # grading doesn't depend on it, which is the point.
+    # Grading is in code, on what the agent did; nothing pattern-matches the payload text.
     assert len(traces) == len(INJECTION_CASES)
     assert any(e["t"] == "tool_call" and not e["seeded"] for t in traces for e in t.events)
 

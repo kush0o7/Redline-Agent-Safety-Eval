@@ -10,7 +10,7 @@ Positioning to keep consistent in all docs and UI copy: vendor-neutral, runs ful
 
 ```
 backend/app/
-  agents/      baseline_agent.py, debate_agent.py, guardrails.py (injection regex, annotation only),
+  agents/      baseline_agent.py, debate_agent.py,
                tools.py (stub tools), tool_loop.py (tool-result scenarios)
   api/         routes_evals.py, routes_runs.py (incl. /runs/compare), routes_testcases.py,
                routes_public.py (quick-eval, badge, leaderboard, admin), routes_health.py
@@ -50,7 +50,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 207 tests, no API keys required
+pytest tests/ -q   # 208 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.

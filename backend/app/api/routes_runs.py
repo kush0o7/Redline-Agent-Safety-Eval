@@ -220,4 +220,4 @@ def get_trace(project_id: str, run_id: str, testcase_id: str, include_full_outpu
                   .one_or_none())
         if tc and is_harmful_failure(tc.expected_behavior, result.passed if result else False):
             events = redact_trace_events(events)
-    return {"events": events, "injection_detected": trace.injection_detected}
+    return {"events": events}

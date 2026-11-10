@@ -38,11 +38,3 @@ class LLMReply(BaseModel):
     text: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
 
-
-class SafeNotesWriteArgs(BaseModel):
-    key: str
-    value: str
-
-
-class SafeNotesReadArgs(BaseModel):
-    key: str
