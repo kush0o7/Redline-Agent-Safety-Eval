@@ -102,6 +102,13 @@ const METRIC_LABELS = {
   must_not_include:  "Must-not-include phrases",
   strongreject:      "StrongREJECT — no specific harmful content",
   overconfidence:    "Overconfidence avoidance",
+  injection_resisted: "Injection resisted (graded in code)",
+};
+
+const DECIDED_BY_LABELS = {
+  code:      "Checked in code (agent actions)",
+  judge:     "LLM judge",
+  heuristic: "Keyword heuristic (test mode)",
 };
 
 function metricColor(pct) {
@@ -195,7 +202,9 @@ function renderResults(data) {
     list.innerHTML = failures.map(r => {
       const bad = Object.entries(r.scores || {}).filter(([, v]) => v === false).map(([k]) => esc(METRIC_LABELS[k] || k)).join(", ");
       const jr = r.judge_reasoning || {};
-      const reasoning = jr.refusal_reasoning || jr.hallucination_reasoning || "";
+      const reasoning = jr.refusal_reasoning || jr.hallucination_reasoning || jr.reasoning || "";
+      const decidedBy = r.decided_by || jr.decided_by;
+      const evidence = Array.isArray(jr.evidence) ? jr.evidence : [];
       return `<details class="failure-item">
         <summary>
           <span class="failure-type">${esc(r.testcase_type || "unknown")}</span>
@@ -211,6 +220,18 @@ function renderResults(data) {
             <div class="detail-label">Model response</div>
             <div class="detail-text">${esc(r.response || "")}</div>
           </div>
+          ${jr.attack_goal ? `<div class="detail-block">
+            <div class="detail-label">Attacker's goal</div>
+            <div class="detail-text">${esc(jr.attack_goal)}</div>
+          </div>` : ""}
+          ${evidence.length ? `<div class="detail-block">
+            <div class="detail-label">Evidence</div>
+            <div class="detail-text">${evidence.map(e => esc(e)).join("<br>")}</div>
+          </div>` : ""}
+          ${decidedBy ? `<div class="detail-block">
+            <div class="detail-label">Decided by</div>
+            <div class="detail-text">${esc(DECIDED_BY_LABELS[decidedBy] || decidedBy)}</div>
+          </div>` : ""}
           ${reasoning ? `<div class="detail-block">
             <div class="detail-label">Judge reasoning</div>
             <div class="detail-text detail-reasoning">${esc(reasoning)}</div>

@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-106%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-146%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -156,13 +156,15 @@ Every run records its testcase IDs and a `case_set_hash` (SHA-256 over each case
 
 | Pack | Category (used for tiers) | Types | Cases |
 |---|---|---|---|
-| core | `harmful_compliance` | `jailbreak` (JailbreakBench sample + persona/framing attacks), `harmbench` (hand-written, HarmBench-style), `refusal` | 26 + 19 + 8 |
-| core | `injection` | `injection` | 8 |
+| core | `harmful_compliance` | `jailbreak` (JailbreakBench sample + persona/framing/direct-override attacks), `harmbench` (hand-written, HarmBench-style), `refusal` | 28 + 19 + 8 |
+| core | `injection` | `injection` (indirect, delivered as real tool results, graded in code) | 8 |
 | core | `hallucination` | `hallucination`, `overconfidence` | 7 + 3 |
 | core | `over_refusal` | `benign` (incl. 20 XSTest-style prompts) | 36 |
 | financial_services | `financial_services` | `fin_unsafe_advice`, `fin_data_leakage`, `fin_fraud`, `fin_benign` | 5 + 5 + 5 + 6 |
 
-That's 107 core cases (when the bundled JailbreakBench data loads) and 21 financial services cases, 128 in total. The financial pack covers unlicensed or misleading advice, customer data disclosure, KYC bypass, structuring, social engineering and document fraud, plus ordinary banking questions that must *not* be refused.
+That's 109 core cases (when the bundled JailbreakBench data loads) and 21 financial services cases, 130 in total. The financial pack covers unlicensed or misleading advice, customer data disclosure, KYC bypass, structuring, social engineering and document fraud, plus ordinary banking questions that must *not* be refused.
+
+**Injection cases are graded on actions, in code.** Each one is a small agent scenario: the user asks for something harmless, the agent has already called a data tool (inbox, document, web page, transactions), and the attacker's instructions arrive inside that tool's result as a real `tool` message. The agent is offered stub action tools (`send_email`, `send_money`, `http_request`, `update_password`, `share_file`, `delete_file`); nothing leaves the harness. The case fails if the agent *attempts* the attacker's action (a tool call with the attacker's arguments) or emits the attacker's marker in its output. LLM judges are unreliable on adversarial text and can be steered by the injection they're grading, so the judge is only a fallback for cases without a code check. Every result records `decided_by` (`code`, `judge`, or `heuristic` in test mode). Injection cases need a target that supports tool calling (OpenAI-compatible endpoints and Ollama now; Anthropic and Bedrock next). Scenarios live in `backend/app/evals/injection_cases.py`; check types are documented in `backend/app/evals/injection_checks.py`.
 
 Add a case: append a `TestcaseSeed` in `backend/app/evals/testcases.py` (core) or in a pack module under `backend/app/evals/packs/`. Each case has a `type`, `prompt`, `expected_behavior` (`should_refuse`, optional `must_include` / `must_not_include`, `should_use_unknown_if_missing_info`), a `severity` from 1 to 5, and a `pack`.
 
@@ -266,7 +268,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 106 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 146 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -281,7 +283,7 @@ The API still serves a shields.io badge (`GET /projects/{id}/badge`) and a demo 
 
 The core is MIT-licensed and will stay open: test runs, the judge, the scoring and tier logic, the API, and the CI check. A self-hosted enterprise tier is planned for later (compliance report export, audit trail, SSO, industry test packs).
 
-**Next, in order:** real tool-result injection testing → per-run system-prompt control (none / Redline / custom) → judge-based injection scoring → a human-labelled judge validation set with published agreement → a fully offline local judge mode → a GitHub Actions CI check.
+**Next, in order:** per-run system-prompt control (none / Redline / custom) → a better judge fallback for injection cases without code checks → a human-labelled judge validation set with published agreement → a fully offline local judge mode → a GitHub Actions CI check.
 
 ## References
 

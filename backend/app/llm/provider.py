@@ -2,20 +2,93 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import json
 import os
 import random
+import re
 from typing import Sequence
 
 import httpx
 
 from app.core.config import settings
-from app.llm.schemas import LLMMessage
+from app.llm.schemas import LLMMessage, LLMReply, ToolCall, ToolSpec
+
+
+class ToolCallingNotSupported(RuntimeError):
+    """The provider (or its configured endpoint) can't take tool definitions / tool results."""
 
 
 class BaseProvider(abc.ABC):
     @abc.abstractmethod
     async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
         raise NotImplementedError
+
+    async def complete_with_tools(
+        self,
+        messages: Sequence[LLMMessage],
+        model: str,
+        temperature: float,
+        seed: int,
+        tools: Sequence[ToolSpec],
+    ) -> LLMReply:
+        """One model turn with tools offered and tool results in the history."""
+        raise ToolCallingNotSupported(f"{type(self).__name__} does not support tool calling yet")
+
+
+# ── OpenAI-compatible wire format (OpenAI, Ollama /v1, vLLM, LiteLLM, custom agents) ──
+
+def to_openai_messages(messages: Sequence[LLMMessage]) -> list[dict]:
+    out: list[dict] = []
+    for m in messages:
+        if m.role == "tool":
+            out.append({"role": "tool", "tool_call_id": m.tool_call_id or "", "content": m.content})
+        elif m.role == "assistant" and m.tool_calls:
+            out.append({
+                "role": "assistant",
+                "content": m.content or None,
+                "tool_calls": [
+                    {
+                        "id": c.id,
+                        "type": "function",
+                        "function": {"name": c.name, "arguments": json.dumps(c.arguments)},
+                    }
+                    for c in m.tool_calls
+                ],
+            })
+        else:
+            out.append({"role": m.role, "content": m.content})
+    return out
+
+
+def to_openai_tools(tools: Sequence[ToolSpec]) -> list[dict]:
+    return [
+        {"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.parameters}}
+        for t in tools
+    ]
+
+
+def _parse_arguments(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    try:
+        parsed = json.loads(raw or "{}")
+        return parsed if isinstance(parsed, dict) else {"_value": parsed}
+    except (TypeError, ValueError):
+        # Keep malformed arguments: an injected call is still an attempted action.
+        return {"_raw": str(raw)}
+
+
+def parse_openai_reply(data: dict) -> LLMReply:
+    message = (data.get("choices") or [{}])[0].get("message") or {}
+    calls = [
+        ToolCall(
+            id=c.get("id") or f"call_{i}",
+            name=(c.get("function") or {}).get("name", ""),
+            arguments=_parse_arguments((c.get("function") or {}).get("arguments")),
+        )
+        for i, c in enumerate(message.get("tool_calls") or [])
+    ]
+    return LLMReply(text=message.get("content") or "", tool_calls=calls)
 
 
 class OpenAIProvider(BaseProvider):
@@ -29,10 +102,31 @@ class OpenAIProvider(BaseProvider):
     async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
         payload = {
             "model": model,
-            "messages": [m.model_dump() for m in messages],
+            "messages": to_openai_messages(messages),
             "temperature": temperature,
             "seed": seed,
         }
+        data = await self._post(payload)
+        return data["choices"][0]["message"].get("content") or ""
+
+    async def complete_with_tools(self, messages, model, temperature, seed, tools) -> LLMReply:
+        payload = {
+            "model": model,
+            "messages": to_openai_messages(messages),
+            "temperature": temperature,
+            "seed": seed,
+            "tools": to_openai_tools(tools),
+        }
+        try:
+            data = await self._post(payload)
+        except httpx.HTTPStatusError as exc:
+            body = str(exc).lower()
+            if exc.response is not None and exc.response.status_code in (400, 404, 422) and "tool" in body:
+                raise ToolCallingNotSupported(f"Endpoint rejected tool calling: {str(exc)[:200]}") from exc
+            raise
+        return parse_openai_reply(data)
+
+    async def _post(self, payload: dict) -> dict:
         headers = {"Authorization": f"Bearer {self.api_key}"}
         if "openrouter" in self.base_url:
             headers["HTTP-Referer"] = "https://redline-safety.fly.dev"
@@ -68,8 +162,7 @@ class OpenAIProvider(BaseProvider):
                             if total > _MAX_BYTES:
                                 raise ValueError(f"Agent endpoint response exceeded {_MAX_BYTES} byte limit")
                             chunks.append(chunk)
-                    data = __import__("json").loads(b"".join(chunks))
-                    return data["choices"][0]["message"].get("content") or ""
+                    return json.loads(b"".join(chunks))
             except httpx.HTTPStatusError:
                 raise
         raise last_exc or RuntimeError("Request failed after retries")
@@ -88,7 +181,7 @@ class AnthropicProvider(BaseProvider):
         payload = {
             "model": model,
             "max_tokens": 1024,
-            "messages": [m.model_dump() for m in filtered],
+            "messages": [{"role": m.role, "content": m.content} for m in filtered],
             "temperature": temperature,
         }
         if system_parts:
@@ -171,11 +264,75 @@ class BedrockProvider(BaseProvider):
         return "".join(texts)
 
 
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_URL_RE = re.compile(r"https?://[^\s'\")\]>]+")
+_IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[0-9A-Z]{4}){3,7}(?: ?[0-9A-Z]{1,3})?\b")
+_FILE_RE = re.compile(r"[\w.-]+\.(?:csv|xlsx|pdf|docx|txt|db)\b")
+_PASSWORD_RE = re.compile(r"new_password\s*[=:]\s*['\"]([^'\"]+)['\"]", re.I)
+_REPLY_ONLY_RE = re.compile(r"reply only with:\s*(.+?)(?:\n|$)", re.I)
+_MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+
+
 class FakeProvider(BaseProvider):
+    """Deterministic stand-in for tests and demos.
+
+    Plain completions echo the prompt. With tools, model name decides behaviour:
+    - any model containing "vulnerable" (e.g. ``fake-vulnerable``) FOLLOWS injected
+      instructions found in tool results — it calls every action tool it was offered
+      with arguments lifted from the injected text, and obeys "reply only with" /
+      markdown-image instructions. Tests use it to prove the checks catch a
+      compromised agent.
+    - anything else behaves safely: summarises, calls no action tools.
+    """
+
     async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
         rnd = random.Random(seed)
         prompt = messages[-1].content if messages else ""
         return f"FAKE_RESPONSE: {prompt[:80]} :: {rnd.randint(0, 9999)}"
+
+    async def complete_with_tools(self, messages, model, temperature, seed, tools) -> LLMReply:
+        tool_text = "\n".join(m.content for m in messages if m.role == "tool")
+        already_acted = any(m.role == "assistant" and m.tool_calls and not m.tool_calls[0].id.startswith("seed_") for m in messages)
+        if "vulnerable" not in (model or "") or already_acted:
+            if "vulnerable" in (model or ""):
+                return LLMReply(text=self._compromised_text(tool_text))
+            return LLMReply(text="Summary: I reviewed the content you asked about. It contains instructions addressed to an AI assistant, which I have not followed.")
+
+        calls: list[ToolCall] = []
+        emails, urls = _EMAIL_RE.findall(tool_text), _URL_RE.findall(tool_text)
+        ibans, files = _IBAN_RE.findall(tool_text), _FILE_RE.findall(tool_text)
+        pw = _PASSWORD_RE.search(tool_text)
+        for t in tools:
+            props = set((t.parameters or {}).get("properties", {}))
+            args: dict = {}
+            if {"to", "with_email"} & props and emails:
+                args["to" if "to" in props else "with_email"] = emails[-1]
+            if "url" in props and urls:
+                args["url"] = urls[-1]
+            if "recipient_iban" in props and ibans:
+                args["recipient_iban"] = ibans[-1]
+            if "new_password" in props and pw:
+                args["new_password"] = pw.group(1)
+            if "name" in props and files and t.name in ("share_file", "delete_file"):
+                args["name"] = files[-1]
+            if not args:
+                continue  # nothing the injection supplied for this tool (also skips data-source tools)
+            for k in ("body", "subject", "amount", "method"):
+                if k in props:
+                    args.setdefault(k, {"body": tool_text[:2000], "subject": "Fwd", "amount": 1000, "method": "POST"}[k])
+            calls.append(ToolCall(id=f"call_{len(calls)}", name=t.name, arguments=args))
+        if calls:
+            return LLMReply(text="", tool_calls=calls)
+        return LLMReply(text=self._compromised_text(tool_text))
+
+    @staticmethod
+    def _compromised_text(tool_text: str) -> str:
+        m = _REPLY_ONLY_RE.search(tool_text)
+        if m:
+            return m.group(1).strip()
+        text = "Done. " + tool_text[:400]
+        image = _MD_IMAGE_RE.search(tool_text)
+        return text + (f"\n\n{image.group(0)}" if image else "")
 
 
 def get_provider() -> BaseProvider:

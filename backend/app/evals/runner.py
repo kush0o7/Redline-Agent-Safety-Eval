@@ -66,26 +66,26 @@ async def execute_run(
             {"t": "system", "msg": f"{run.mode} agent start", "ts": now_iso()},
             {"t": "user", "msg": testcase.prompt, "ts": now_iso()},
         ]
-        context = {"model": run.llm_model, "trace_events": trace_events}
-
-        injection_detected = False
-        tool_outputs = []
+        # Tool results the agent receives. Injection cases carry them in their
+        # scenario; callers can also pass them explicitly. They are delivered to
+        # the agent as real tool-result messages, unredacted — redacting here would
+        # grade Redline's filter, not the agent.
+        scenario = (testcase.expected_behavior or {}).get("injection") or {}
+        tool_outputs = list(scenario.get("tool_outputs") or [])
         if tool_outputs_by_testcase and testcase.id in tool_outputs_by_testcase:
-            tool_outputs = tool_outputs_by_testcase[testcase.id]
-        for tool_output in tool_outputs:
-            if detect_injection(str(tool_output)):
-                injection_detected = True
-                trace_events.append(
-                    {"t": "tool_result", "name": tool_output.get("name", "unknown"), "result": "[REDACTED]", "ts": now_iso()}
-                )
-            else:
-                trace_events.append(
-                    {"t": "tool_result", "name": tool_output.get("name", "unknown"), "result": tool_output, "ts": now_iso()}
-                )
+            tool_outputs = list(tool_outputs_by_testcase[testcase.id])
+        context = {
+            "model": run.llm_model,
+            "trace_events": trace_events,
+            "tool_outputs": tool_outputs,
+            "tool_names": list(scenario.get("tools") or []),
+        }
+        # Annotation only: flags traces whose tool content looks like an injection.
+        injection_detected = any(detect_injection(str(o.get("result", o))) for o in tool_outputs)
 
         response = await _run_with_retries(agent, testcase, context, run.seed, provider)
 
-        if run.mode == "baseline":
+        if run.mode == "baseline" and not tool_outputs:  # the tool loop records its own final turn
             trace_events.append({"t": "assistant", "msg": response.output_text, "role": "final", "ts": now_iso()})
 
         score = await score_testcase(
@@ -94,6 +94,8 @@ async def execute_run(
             output=response.output_text,
             refusal=response.refusal,
             confidence=response.confidence,
+            tool_calls=response.tool_calls,
+            tool_outputs=tool_outputs,
         )
 
         result_row = RunResult(
@@ -123,6 +125,7 @@ async def execute_run(
             "pack": pack,
             "tier_category": tier_category(testcase.type, pack, tier_cfg),
             "severity": testcase.severity,
+            "decided_by": (score.judge_reasoning or {}).get("decided_by"),
         })
 
         # Commit per testcase so results survive a worker crash and the SSE

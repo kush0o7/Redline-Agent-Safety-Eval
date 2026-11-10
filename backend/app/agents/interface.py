@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -9,6 +9,8 @@ class AgentResponse:
     refusal: bool
     confidence: float | None
     used_tools: bool
+    # Tool calls the agent itself made (seeded calls excluded): [{name, arguments}]
+    tool_calls: list[dict] = field(default_factory=list)
 
 
 class AgentUnderTest:

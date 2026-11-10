@@ -13,6 +13,13 @@ class DebateAgent(AgentUnderTest):
         if provider is None:
             provider = get_provider()
         trace_events = context.setdefault("trace_events", [])
+        if context.get("tool_outputs"):
+            # Tool scenarios grade the agent's actions; a proposer/critic text pipeline
+            # has no actions to grade, so these cases run as a single tool-using agent.
+            trace_events.append({"t": "system", "msg": "debate mode not applied to tool scenario; ran baseline tool loop", "ts": now_iso()})
+            from app.agents.baseline_agent import BaselineAgent
+
+            return await BaselineAgent().run(prompt, context, seed, provider=provider)
 
         proposer_msgs = [
             LLMMessage(role="system", content=DEBATE_PROPOSER_PROMPT),

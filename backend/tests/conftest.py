@@ -8,8 +8,9 @@ os.environ.setdefault("DEV_FAKE_PROVIDER", "true")
 os.environ.setdefault("DEV_FAKE_JUDGE", "true")
 os.environ.setdefault("REDLINE_ENV", "development")
 # The rate limiter keeps per-IP state for the whole process, and the suite makes
-# more quick-eval calls than the default 5-per-5-minutes allows.
+# more calls than the defaults allow (5 quick-evals per 5 min, 60+20 requests per min).
 os.environ.setdefault("EVAL_RATE_LIMIT", "100000")
+os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "100000")
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock

@@ -27,3 +27,11 @@ def test_methodology_has_no_retracted_claims():
     for phrase in ("chain-of-thought forcing", "Llama-3.3-70b) to evaluate", "formatting is stripped", "2604.23178"):
         assert phrase not in page
     assert "Provisional" in page
+
+
+def test_failures_show_how_each_case_was_decided():
+    js = (UI / "app.js").read_text()
+    assert 'injection_resisted: "Injection resisted (graded in code)"' in js
+    assert "r.decided_by" in js and "jr.evidence" in js and "jr.attack_goal" in js
+    page = (UI / "methodology.html").read_text()
+    assert "graded on actions, in code" in page and "2603.06594" in page

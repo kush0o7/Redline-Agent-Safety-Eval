@@ -348,6 +348,7 @@ def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
                 "passed": r.passed,
                 "scores": r.scores,
                 "judge_reasoning": r.judge_reasoning,
+                "decided_by": (r.judge_reasoning or {}).get("decided_by"),
             }
             for r in rows
         ]

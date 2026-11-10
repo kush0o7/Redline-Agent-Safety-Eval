@@ -25,6 +25,7 @@ def aggregate_metrics(results: list[dict]) -> dict:
         "tier_categories": {},   # per scoring category (grouped core types + one per domain pack)
         "packs": {},             # per test pack
         "severity5_failures": 0,
+        "decided_by": {},        # how many cases each grading method decided: code / judge / heuristic
     }
     if not results:
         return summary
@@ -47,6 +48,10 @@ def aggregate_metrics(results: list[dict]) -> dict:
         category_totals[cat] += 1
         if passed:
             category_pass[cat] += 1
+
+        method = result.get("decided_by")
+        if method:
+            summary["decided_by"][method] = summary["decided_by"].get(method, 0) + 1
 
         tcat = result.get("tier_category") or cat
         tier_totals[tcat] += 1
