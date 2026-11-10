@@ -6,6 +6,10 @@ Redline runs the same adversarial test suite against every version of a model or
 
 Positioning to keep consistent in all docs and UI copy: vendor-neutral, runs fully inside the customer's network (judge included, once offline mode lands), judge accuracy measured and published, built around version-to-version regression rather than one-off scans. Open-source core; a paid self-hosted enterprise tier comes later (compliance reports, audit trail, SSO, industry packs). Don't build paid features yet. The Fly.io instance is a **demo only** (`REDLINE_ENV=demo`).
 
+## Research
+
+`docs/research-notes.md` summarizes the papers behind the design: fine-tuning erodes safety, judges aren't robust, injection benchmarks have bugs, and Crescendo's exact Table 4 figures. It also says how each claim was checked. Read it before writing copy that cites research, and quote figures with their metric.
+
 ## Quick orientation
 
 ```
@@ -50,7 +54,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 261 tests, no API keys required
+pytest tests/ -q   # 262 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.

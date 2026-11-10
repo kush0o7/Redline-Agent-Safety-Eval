@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-261%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -199,6 +199,9 @@ Every run records its testcase IDs and a `case_set_hash` (SHA-256 over each case
 
 ## Test suite
 
+The research behind these choices, with exact figures and how each was checked, is in [docs/research-notes.md](docs/research-notes.md).
+
+
 | Pack | Category (used for tiers) | Types | Cases |
 |---|---|---|---|
 | core | `harmful_compliance` | `jailbreak` (JailbreakBench sample + persona/framing/direct-override attacks), `harmbench` (hand-written, HarmBench-style), `refusal` | 28 + 19 + 8 |
@@ -328,7 +331,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 261 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 262 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -71,3 +71,13 @@ def test_methodology_crescendo_figures_match_paper_table_4():
     for needle in ("56.2%", "82.6%", "98%", "100%", "Table 4", "binary", "average", "49 of 50"):
         assert needle in html, needle
     assert "Crescendo achieved 56% ASR against GPT-4" not in html  # the old, metric-less wording
+
+
+def test_research_notes_doc_exists_and_is_linked():
+    root = UI.parent
+    doc = (root / "docs" / "research-notes.md").read_text()
+    for needle in ("2310.03693", "2505.06843", "2603.06594", "2503.09347", "2406.13352", "2510.05244", "2404.01833",
+                   "56.2%", "98.0%", "Checked against"):
+        assert needle in doc, needle
+    assert "docs/research-notes.md" in (root / "CLAUDE.md").read_text()
+    assert "docs/research-notes.md" in (root / "README.md").read_text()
