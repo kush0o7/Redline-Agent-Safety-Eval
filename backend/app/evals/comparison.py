@@ -11,8 +11,9 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Run, RunResult, Testcase
 from app.evals.case_sets import case_set_for_run, compare_case_sets
+from app.evals.release import TIER_RANK, injection_impact, release_decision, tier_rank
+from app.utils.tiers import load_tier_config, tier_category
 
-TIER_RANK = {"At Risk": 0, "Developing": 1, "Safe": 2, "Hardened": 3}
 
 
 def _rate(values: list) -> float | None:
@@ -49,7 +50,8 @@ def run_brief(run: Run) -> dict:
 
 def tier_change(base: dict, candidate: dict) -> dict:
     a, b = base.get("indicative_tier"), candidate.get("indicative_tier")
-    ra, rb = TIER_RANK.get(a), TIER_RANK.get(b)
+    rank = tier_rank()
+    ra, rb = rank.get(a), rank.get(b)
     if ra is None or rb is None or ra == rb:
         direction = "same" if a == b else "unknown"
     else:
@@ -69,7 +71,7 @@ def _group_deltas(base: dict, candidate: dict) -> dict:
     return out
 
 
-def _case_detail(tc: Testcase | None, base: RunResult, cand: RunResult) -> dict:
+def _case_detail(tc: Testcase | None, base: RunResult, cand: RunResult, cfg: dict | None = None) -> dict:
     cjr = cand.judge_reasoning or {}
     bjr = base.judge_reasoning or {}
     evidence = cjr.get("evidence")
@@ -92,7 +94,21 @@ def _case_detail(tc: Testcase | None, base: RunResult, cand: RunResult) -> dict:
         "candidate_decided_by": cjr.get("decided_by"),
         "candidate_failed_metrics": sorted(k for k, v in (cand.scores or {}).items() if v is False),
         "evidence": evidence,
+        "tags": list(tc.tags or []) if tc else [],
+        "category": tier_category(tc.type, tc.pack, cfg) if tc else None,
+        "should_refuse": bool((tc.expected_behavior or {}).get("should_refuse")) if tc else False,
+        "agent_tool_calls": cjr.get("agent_tool_calls") or [],
+        "data_sources": [o.get("name") for o in (((tc.expected_behavior or {}).get("injection") or {}).get("tool_outputs") or [])] if tc else [],
+        "data_text": _seeded_text(tc),
     }
+
+
+def _seeded_text(tc: Testcase | None) -> str:
+    """The attacker-controlled data an injection case delivered (used to word its impact)."""
+    if not tc:
+        return ""
+    outs = ((tc.expected_behavior or {}).get("injection") or {}).get("tool_outputs") or []
+    return " ".join(str(o.get("result", "")) for o in outs)[:4000]
 
 
 def build_comparison(db: Session, base_run: Run, candidate_run: Run) -> dict:
@@ -123,6 +139,7 @@ def build_comparison(db: Session, base_run: Run, candidate_run: Run) -> dict:
     if not common:
         out.update({"pass_rate_delta": None, "metrics": {}, "changed_testcases": [],
                     "flipped": {"regressions": [], "improvements": []}})
+        out["release"] = release_decision(out)
         return out
 
     base_rate = _rate([base_by[t].passed for t in common])
@@ -137,7 +154,8 @@ def build_comparison(db: Session, base_run: Run, candidate_run: Run) -> dict:
 
     changed = [t for t in common if bool(base_by[t].passed) != bool(cand_by[t].passed)]
     testcases = {str(tc.id): tc for tc in db.query(Testcase).filter(Testcase.id.in_([cand_by[t].testcase_id for t in changed])).all()} if changed else {}
-    details = [_case_detail(testcases.get(t), base_by[t], cand_by[t]) for t in changed]
+    cfg = load_tier_config()
+    details = [_case_detail(testcases.get(t), base_by[t], cand_by[t], cfg) for t in changed]
     # Most severe first; within a severity, code-graded (deterministic) evidence first.
     by_severity = lambda d: (-(d["severity"] or 0), d["candidate_decided_by"] != "code", d["type"] or "", d["name"] or "")  # noqa: E731
 
@@ -153,4 +171,9 @@ def build_comparison(db: Session, base_run: Run, candidate_run: Run) -> dict:
             "improvements": sorted([d for d in details if not d["base_passed"] and d["candidate_passed"]], key=by_severity),
         },
     })
+    for d in details:
+        d["impact"] = injection_impact(d) if d.get("type") == "injection" else None
+    out["release"] = release_decision(out)
+    for d in details:
+        d.pop("data_text", None)  # only needed to word the impact; the prompt and evidence carry the rest
     return out

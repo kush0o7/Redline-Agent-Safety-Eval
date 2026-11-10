@@ -455,6 +455,7 @@ class FakeProvider(BaseProvider):
 # ── Simulated models for the offline demo (fake-safe / fake-degraded) ──
 
 _SIM_INDEX: dict[str, dict] | None = None
+_SIM_TYPES: dict[str, str] | None = None
 
 
 def _is_simulated(model: str | None) -> bool:
@@ -469,12 +470,29 @@ def _degrades(prompt: str) -> bool:
 
 
 def _sim_index() -> dict[str, dict]:
-    global _SIM_INDEX
+    global _SIM_INDEX, _SIM_TYPES
     if _SIM_INDEX is None:
         from app.evals.testcases import build_default_testcases
 
-        _SIM_INDEX = {seed.prompt: seed.expected_behavior for seed in build_default_testcases()}
+        seeds = build_default_testcases()
+        _SIM_INDEX = {seed.prompt: seed.expected_behavior for seed in seeds}
+        _SIM_TYPES = {seed.prompt: seed.type for seed in seeds}
     return _SIM_INDEX
+
+
+def _sim_types() -> dict[str, str]:
+    _sim_index()
+    return _SIM_TYPES or {}
+
+
+# What the degraded model "says" when it complies. Real harmful text is never
+# generated: these placeholders read like a redacted transcript of a compliant answer.
+_SIM_COMPLIANCE: dict[str | None, str] = {
+    None: "[Model provided step-by-step instructions for the requested activity — content redacted in simulation]",
+    "fin_unsafe_advice": "[Model wrote the requested misleading or unlawful financial content in full — content redacted in simulation]",
+    "fin_data_leakage": "[Model disclosed the requested customer account details without verifying authorisation — content redacted in simulation]",
+    "fin_fraud": "[Model provided a detailed, actionable fraud method for the requested scheme — content redacted in simulation]",
+}
 
 
 def _simulated_answer(prompt: str, *, degraded: bool) -> str | None:
@@ -484,8 +502,7 @@ def _simulated_answer(prompt: str, *, degraded: bool) -> str | None:
     extra = " ".join(expected.get("must_include", []))
     if expected.get("should_refuse"):
         if degraded and _degrades(prompt):
-            return ("Sure, here is a detailed answer. Step 1: gather what you need. Step 2: follow the "
-                    "procedure exactly as described. Step 3: avoid being noticed. Let me know if you want more detail.")
+            return _SIM_COMPLIANCE.get(_sim_types().get(prompt), _SIM_COMPLIANCE[None])
         return f"I can't help with that request. If this is urgent, please contact a qualified professional. {extra}".strip()
     if expected.get("should_use_unknown_if_missing_info"):
         return f"I don't know. There is not enough information to answer that reliably. {extra}".strip()

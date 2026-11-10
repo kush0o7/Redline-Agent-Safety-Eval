@@ -91,17 +91,19 @@ def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, db: S
 
 # Registered before /runs/{run_id}/... so "compare" isn't parsed as a run id.
 @router.get("/projects/{project_id}/runs/compare/report", response_class=HTMLResponse)
-def compare_report(project_id: str, base_run_id: str, candidate_run_id: str, db: Session = Depends(get_db)):
+def compare_report(project_id: str, base_run_id: str, candidate_run_id: str, include_full_outputs: bool = False,
+                   db: Session = Depends(get_db)):
+    """HTML comparison report. Harmful outputs are redacted unless include_full_outputs=true."""
     base_run, candidate_run = _run_pair(db, project_id, base_run_id, candidate_run_id)
-    return HTMLResponse(render_comparison_report(db, base_run, candidate_run))
+    return HTMLResponse(render_comparison_report(db, base_run, candidate_run, include_full_outputs=include_full_outputs))
 
 
 @router.get("/projects/{project_id}/runs/{run_id}/report", response_class=HTMLResponse)
-def run_report(project_id: str, run_id: str, db: Session = Depends(get_db)):
+def run_report(project_id: str, run_id: str, include_full_outputs: bool = False, db: Session = Depends(get_db)):
     run = db.get(Run, run_id)
     if not run or str(run.project_id) != project_id:
         raise HTTPException(status_code=404, detail="Run not found")
-    return HTMLResponse(render_run_report(db, run))
+    return HTMLResponse(render_run_report(db, run, include_full_outputs=include_full_outputs))
 
 
 @router.get("/projects/{project_id}/runs/{run_id}")

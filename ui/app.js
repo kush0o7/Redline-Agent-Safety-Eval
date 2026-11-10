@@ -484,6 +484,14 @@ function groupCell(g) {
   return `${pctOrDash(g.pass_rate)} (${g.pass}/${g.total})${ci}`;
 }
 
+// Answers to harmful requests are redacted here, as in the HTML report (full text: report with include_full_outputs).
+function compareAnswer(d, text, passed) {
+  const t = String(text || "");
+  if (!d.should_refuse || passed || /^\[Model [^\]]* — content redacted in simulation\]$/.test(t.trim())) return esc(t);
+  const flat = t.split(/\s+/).join(" ");
+  return flat.length <= 80 ? "[harmful content — redacted]" : `${esc(flat.slice(0, 80))}… [harmful content — redacted]`;
+}
+
 function renderComparison(cmp, baseId, candId) {
   const tc = cmp.tier_change || {};
   const regs = (cmp.flipped || {}).regressions || [];
@@ -492,7 +500,8 @@ function renderComparison(cmp, baseId, candId) {
     <div><span class="compare-k">Pass rate</span> ${pctOrDash(cmp.base_pass_rate)} → ${pctOrDash(cmp.candidate_pass_rate)} (${ptsHtml(cmp.pass_rate_delta)})</div>
     <div><span class="compare-k">Tier</span> ${esc(tc.from || "—")} → ${esc(tc.to || "—")} ${tc.direction === "down" ? "⬇️" : tc.direction === "up" ? "⬆️" : ""}</div>
     <div><span class="compare-k">Models</span> ${esc((cmp.base || {}).model || "?")} → ${esc((cmp.candidate || {}).model || "?")}</div>
-    <div><span class="compare-k">Shared cases</span> ${cmp.common_total} · ${regs.length} pass→fail · ${imps.length} fail→pass</div>`;
+    <div><span class="compare-k">Flipped</span> ${regs.length} regression${regs.length === 1 ? "" : "s"} · ${imps.length} improvement${imps.length === 1 ? "" : "s"} (of ${cmp.common_total} shared cases)</div>
+    ${cmp.release ? `<div><span class="compare-k">Release</span> <strong style="color:${cmp.release.decision === "PASS" ? "#22c55e" : "#ef4444"}">${esc(cmp.release.decision)}</strong> — ${esc(cmp.release.reason)}<br><span style="color:var(--muted)">${esc(cmp.release.recommended_action)}</span></div>` : ""}`;
   const warn = document.getElementById("compareWarning");
   const cs = cmp.case_set || {};
   warn.textContent = cs.identical ? "" : `⚠️ ${cs.warning || "These runs did not use identical cases."}`;
@@ -511,8 +520,9 @@ function renderComparison(cmp, baseId, candId) {
       <div class="failure-detail">
         ${d.attack_goal ? `<div class="detail-block"><div class="detail-label">Attacker's goal</div><div class="detail-text">${esc(d.attack_goal)}</div></div>` : ""}
         <div class="detail-block"><div class="detail-label">Prompt</div><div class="detail-text">${esc(d.prompt || "")}</div></div>
-        <div class="detail-block"><div class="detail-label">Before answer (${d.base_passed ? "passed" : "failed"})</div><div class="detail-text">${esc(d.base_answer || "")}</div></div>
-        <div class="detail-block"><div class="detail-label">After answer (${d.candidate_passed ? "passed" : "failed"})</div><div class="detail-text">${esc(d.candidate_answer || "")}</div></div>
+        <div class="detail-block"><div class="detail-label">Before answer (${d.base_passed ? "passed" : "failed"})</div><div class="detail-text">${compareAnswer(d, d.base_answer, d.base_passed)}</div></div>
+        <div class="detail-block"><div class="detail-label">After answer (${d.candidate_passed ? "passed" : "failed"})</div><div class="detail-text">${compareAnswer(d, d.candidate_answer, d.candidate_passed)}</div></div>
+        ${d.impact ? `<div class="detail-block"><div class="detail-label">Business impact</div><div class="detail-text">${esc(d.impact)}</div></div>` : ""}
         ${evidence ? `<div class="detail-block"><div class="detail-label">Evidence</div><div class="detail-text">${evidence}</div></div>` : ""}
       </div>
     </details>`;

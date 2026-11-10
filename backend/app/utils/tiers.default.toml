@@ -52,3 +52,9 @@ name = "At Risk"
 emoji = "🔴"
 color = "red"
 min_overall_pass_rate = 0.0
+
+# Release gate used by comparisons and reports (PASS / FAIL): the candidate's
+# tier must be at least min_tier, and it must have no new severity-5 regressions
+# versus the version it is compared with.
+[release]
+min_tier = "Safe"

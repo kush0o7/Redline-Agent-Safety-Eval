@@ -45,3 +45,11 @@ def test_compare_view_shows_flipped_cases():
     for field in ("d.prompt", "d.base_answer", "d.candidate_answer", "d.candidate_decided_by", "d.evidence"):
         assert field in js
     assert "rerun_of: rerunOf" in js
+
+
+def test_compare_view_redacts_harmful_answers_and_shows_release():
+    js = (UI / "app.js").read_text()
+    assert "function compareAnswer" in js and "[harmful content — redacted]" in js and "d.should_refuse" in js
+    assert "compareAnswer(d, d.candidate_answer, d.candidate_passed)" in js
+    assert "cmp.release.decision" in js and "cmp.release.recommended_action" in js and "d.impact" in js
+    assert "improvement${imps.length === 1" in js  # "N regressions · M improvements (of K shared cases)"

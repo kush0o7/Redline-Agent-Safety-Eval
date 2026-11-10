@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-174%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-199%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -64,12 +64,20 @@ Knobs: `DEMO_CASES`, `DEMO_SEED`, `DEMO_PACKS`, `DEMO_FAKE_JUDGE=1`, `DEMO_NO_OP
 
 ### Evidence reports
 
-Every run and every comparison can be exported as a single self-contained HTML file (summary, tier and reasons, per-category and per-pack tables with confidence ranges, flipped cases, methodology notes, timestamp, Redline version, case-set fingerprint). All model output is escaped, and the file loads nothing external.
+Every run and every comparison can be exported as a single self-contained HTML file. All model output is escaped, and the file loads nothing external. A comparison report contains:
+
+- **Executive summary:** a release decision (PASS / FAIL), the top 3 risks in plain English and a recommended action. A release passes when the candidate's tier is at least `[release] min_tier` in the tier config (default Safe) **and** it has no new severity-5 regressions.
+- Tier and reasons, per-category and per-pack tables with confidence ranges.
+- Regressions grouped by category (most severe first, collapsible), each with its verdict, evidence and, for injection cases, a business-impact line worked out from the agent's actual tool calls (e.g. "Would have transferred EUR 1,000 to an attacker-controlled IBAN").
+- Methodology notes, timestamp, Redline version and case-set fingerprint. Reports on simulated models carry a banner saying so.
+
+**Redaction.** Answers to harmful requests are redacted by default: the report shows an 80-character excerpt, the verdict and the evidence. Injection tool calls and their arguments are always shown (long arguments are truncated). To include full outputs, which adds a warning banner, use `FULL=1` / `--include-full-outputs` / `?include_full_outputs=true`. The public `/quick-eval/...` report endpoints require `X-Admin-Key` for full outputs. The compare JSON API returns raw answers.
 
 ```bash
 make report RUN=<run_id>                       # uses POSTGRES_URL from .env
 make report COMPARE=<before_id>,<after_id>
 make report COMPARE=<before_id>,<after_id> DB=demo   # the database `make demo` created
+make report COMPARE=<before_id>,<after_id> FULL=1    # unredacted harmful outputs (sensitive)
 ```
 
 API: `GET /projects/{id}/runs/{run_id}/report`, `GET /projects/{id}/runs/compare/report?base_run_id=&candidate_run_id=` (admin), and `GET /quick-eval/{run_id}/report`, `GET /quick-eval/{run_id}/compare/report?base_run_id=` (same visibility as `GET /quick-eval/{run_id}`). The UI's **Compare two runs** card shows the same flipped cases. No PDF yet; print to PDF from the browser if you need one.
@@ -318,7 +326,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 174 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 199 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -50,7 +50,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 174 tests, no API keys required
+pytest tests/ -q   # 199 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
@@ -100,8 +100,8 @@ See `mcp-server/README.md`. `quick_safety_eval` takes `testcase_count` (default 
 ## Demo and reports
 
 - `make demo` (`scripts/demo.py`): offline, in-process SQLite + inline queue; `fake-safe` vs `fake-degraded` (simulated models in `llm/provider.py` that look prompts up in the bundled cases); `DEMO_BEFORE_MODEL`/`DEMO_AFTER_MODEL` for real models. Writes `reports/` (gitignored) and `.demo/redline_demo.db` (gitignored).
-- `make report RUN=<id> | COMPARE=<a>,<b> [DB=demo|<url>]` (`scripts/report.py`).
-- `evals/comparison.py::build_comparison` is the single source for compare data (API, HTML report, UI). `reports/html_report.py` renders escaped, script-free HTML.
+- `make report RUN=<id> | COMPARE=<a>,<b> [DB=demo|<url>] [FULL=1]` (`scripts/report.py`). Reports redact answers to harmful (should-refuse) cases unless `include_full_outputs` is set (public quick-eval report endpoints need the admin key for that); injection tool calls are always shown.
+- `evals/comparison.py::build_comparison` is the single source for compare data (API, HTML report, UI). `reports/html_report.py` renders escaped, script-free HTML. `evals/release.py` owns the release decision (tier ≥ `[release] min_tier`, default Safe, and no new severity-5 regressions), the top risks and the injection business-impact lines; `build_comparison` returns them under `release` and per-regression `impact`.
 - Report endpoints: `/projects/{id}/runs/{run_id}/report`, `/projects/{id}/runs/compare/report` (registered before `/runs/{run_id}`), `/quick-eval/{run_id}/report`, `/quick-eval/{run_id}/compare[/report]?base_run_id=` (422 if the runs are in different projects).
 
 ## Architecture notes

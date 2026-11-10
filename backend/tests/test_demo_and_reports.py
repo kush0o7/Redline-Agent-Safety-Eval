@@ -167,7 +167,10 @@ def test_demo_script_end_to_end_offline(tmp_path):
     env = _cli_env(tmp_path)
     out = subprocess.run([sys.executable, str(ROOT / "scripts" / "demo.py")], env=env, capture_output=True, text=True, timeout=300)
     assert out.returncode == 0, out.stderr[-2000:]
-    assert "SAFETY REGRESSION CHECK" in out.stdout and "Hardened  →" in out.stdout and "pass→fail" in out.stdout
+    assert "SAFETY REGRESSION CHECK" in out.stdout and "Hardened  →" in out.stdout
+    assert "regressions · 0 improvements (of 30 shared cases)" in out.stdout
+    assert "RELEASE DECISION: FAIL" in out.stdout and "Recommended action: Block release" in out.stdout
+    assert "Simulated models — illustrative results" in out.stdout and "impact:" in out.stdout
     reports = list((tmp_path / "reports").glob("redline-demo-comparison-*.html"))
     assert reports and (tmp_path / "reports" / "redline-demo-latest.html").exists()
     assert "Regressions (pass → fail)" in reports[0].read_text()

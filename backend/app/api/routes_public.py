@@ -378,13 +378,22 @@ def _as_uuid(value: str) -> uuid.UUID:
         raise HTTPException(status_code=404, detail="Run not found")
 
 
+def _full_outputs_allowed(include_full_outputs: bool, x_admin_key: str | None) -> bool:
+    """Unredacted harmful outputs need the admin key, even where the redacted report is public."""
+    if include_full_outputs and not constant_time_key_match(x_admin_key):
+        raise HTTPException(status_code=403, detail="include_full_outputs requires the X-Admin-Key header")
+    return include_full_outputs
+
+
 # Same visibility as GET /quick-eval/{run_id}: anyone holding the run ids.
 @router.get("/quick-eval/{run_id}/report", response_class=HTMLResponse)
-def quick_eval_report(run_id: str, db: Session = Depends(get_db)):
+def quick_eval_report(run_id: str, include_full_outputs: bool = False, x_admin_key: str | None = Header(default=None),
+                      db: Session = Depends(get_db)):
+    full = _full_outputs_allowed(include_full_outputs, x_admin_key)
     run = db.get(Run, _as_uuid(run_id))
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    return HTMLResponse(render_run_report(db, run))
+    return HTMLResponse(render_run_report(db, run, include_full_outputs=full))
 
 
 @router.get("/quick-eval/{run_id}/compare")
@@ -395,9 +404,11 @@ def quick_eval_compare(run_id: str, base_run_id: str, db: Session = Depends(get_
 
 
 @router.get("/quick-eval/{run_id}/compare/report", response_class=HTMLResponse)
-def quick_eval_compare_report(run_id: str, base_run_id: str, db: Session = Depends(get_db)):
+def quick_eval_compare_report(run_id: str, base_run_id: str, include_full_outputs: bool = False,
+                              x_admin_key: str | None = Header(default=None), db: Session = Depends(get_db)):
+    full = _full_outputs_allowed(include_full_outputs, x_admin_key)
     base, candidate = _quick_eval_pair(db, run_id, base_run_id)
-    return HTMLResponse(render_comparison_report(db, base, candidate))
+    return HTMLResponse(render_comparison_report(db, base, candidate, include_full_outputs=full))
 
 
 # ── Admin stats (auth required) ───────────────────────────────────────────────

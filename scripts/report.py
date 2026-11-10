@@ -8,6 +8,8 @@
 Database: DB=demo → .demo/redline_demo.db; DB=<sqlalchemy url> → that database;
 otherwise POSTGRES_URL from the environment or ./.env (your Redline install).
 Output: ./reports/redline-<run|comparison>-<ids>.html (or --out PATH). --open opens it.
+Answers to harmful requests are redacted; --include-full-outputs (make report ... FULL=1)
+includes them, with a warning banner, in a file suffixed -FULL.
 """
 from __future__ import annotations
 
@@ -48,6 +50,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--db", help="'demo' or a SQLAlchemy URL")
     ap.add_argument("--out", help="output file path")
     ap.add_argument("--open", action="store_true", help="open the report in a browser")
+    ap.add_argument("--include-full-outputs", action="store_true",
+                    help="include unredacted answers to harmful requests (sensitive; adds a warning banner)")
     args = ap.parse_args(argv)
     _configure(args.db)
 
@@ -66,22 +70,24 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"Run not found: {run_id}")
         return run
 
+    full = args.include_full_outputs
     db = db_session.SessionLocal()
     try:
         if args.run:
             run = load(args.run)
-            html, name = render_run_report(db, run), f"redline-run-{str(run.id)[:8]}.html"
+            html = render_run_report(db, run, include_full_outputs=full)
+            name = f"redline-run-{str(run.id)[:8]}"
         else:
             ids = [x for x in args.compare.split(",") if x.strip()]
             if len(ids) != 2:
                 raise SystemExit("COMPARE needs two run ids: <before>,<after>")
             base, cand = load(ids[0]), load(ids[1])
-            html = render_comparison_report(db, base, cand)
-            name = f"redline-comparison-{str(base.id)[:8]}-{str(cand.id)[:8]}.html"
+            html = render_comparison_report(db, base, cand, include_full_outputs=full)
+            name = f"redline-comparison-{str(base.id)[:8]}-{str(cand.id)[:8]}"
     finally:
         db.close()
 
-    out = Path(args.out) if args.out else ROOT / "reports" / name
+    out = Path(args.out) if args.out else ROOT / "reports" / f"{name}{'-FULL' if full else ''}.html"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     print(out)

@@ -85,6 +85,13 @@ def _short(text, n=110) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
+def _answer_line(d: dict) -> str:
+    """Terminal view of a failed answer; answers to harmful requests stay redacted, as in the report."""
+    if d.get("should_refuse") and not str(d.get("candidate_answer") or "").startswith("[Model "):
+        return "[harmful content — redacted; see the report with FULL=1]"
+    return _short(d.get("candidate_answer"))
+
+
 def main() -> int:
     before = os.environ.get("DEMO_BEFORE_MODEL")
     after = os.environ.get("DEMO_AFTER_MODEL")
@@ -149,13 +156,22 @@ def main() -> int:
     cmp = client.get(f"/quick-eval/{cand_id}/compare", params={"base_run_id": base_id}).json()
     tc = cmp["tier_change"]
     regs, imps = cmp["flipped"]["regressions"], cmp["flipped"]["improvements"]
+    if before.startswith("fake") or after.startswith("fake"):
+        print("\n  ⚠  Simulated models — illustrative results, not a measurement of any real model.")
     print("\n" + "═" * 78)
     print(f" SAFETY REGRESSION CHECK   {before}  →  {after}")
     print("═" * 78)
     print(f" Same cases:   {cmp['common_total']}   (identical case set: {cmp['case_set'].get('identical')})")
     print(f" Pass rate:    {_pct(cmp['base_pass_rate'])}  →  {_pct(cmp['candidate_pass_rate'])}   ({_pts(cmp['pass_rate_delta']).strip()})")
     print(f" Tier:         {tc['from']}  →  {tc['to']}   ({tc['direction']})")
-    print(f" Flipped:      {len(regs)} pass→fail, {len(imps)} fail→pass")
+    print(f" Flipped:      {len(regs)} regressions · {len(imps)} improvements (of {cmp['common_total']} shared cases)")
+    rel = cmp["release"]
+    print(f"\n RELEASE DECISION: {rel['decision']} — {rel['reason']}")
+    if rel["top_risks"]:
+        print(" Top risks:")
+        for i, r in enumerate(rel["top_risks"], 1):
+            print(f"  {i}. {r['risk']}  ({r['cases']} case{'' if r['cases'] == 1 else 's'}, severity {r['severity']})")
+    print(f" Recommended action: {rel['recommended_action']}")
     print("\n Per category                 before      after      change")
     for name, g in cmp["categories"].items():
         b, c = g.get("base") or {}, g.get("candidate") or {}
@@ -164,7 +180,9 @@ def main() -> int:
         print(f"\n Cases that flipped pass → fail (showing {min(len(regs), 8)} of {len(regs)}, most severe first)")
         for d in regs[:8]:
             print(f"\n  ✗ {d['name']}  [{d['type']}, severity {d['severity']}, decided by {d['candidate_decided_by']}]")
-            print(textwrap.indent(f"prompt: {_short(d['prompt'])}\nanswer: {_short(d['candidate_answer'])}", "      "))
+            print(textwrap.indent(f"prompt: {_short(d['prompt'])}\nanswer: {_answer_line(d)}", "      "))
+            if d.get("impact"):
+                print(f"      impact:   {_short(d['impact'])}")
             if d.get("evidence"):
                 print(f"      evidence: {_short(d['evidence'][0])}")
 
