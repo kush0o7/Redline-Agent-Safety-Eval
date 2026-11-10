@@ -43,7 +43,7 @@
       .btn-share:hover { background: rgba(255,255,255,.14); }
 
       /* Demo banner */
-      .demo-banner { background: rgba(234,179,8,.12); border: 1px solid rgba(234,179,8,.45); color: var(--text); border-radius: 8px; padding: 10px 14px; font-size: 13px; margin: 0 0 18px; }
+      .demo-banner { background: rgba(234,179,8,.12); border: 1px solid rgba(234,179,8,.45); color: var(--text); border-radius: 8px; padding: 10px 14px; font-size: 13px; margin: 0 0 28px; }
       .demo-banner strong { color: #eab308; }
 
       /* Packs + tier reasons */
@@ -62,13 +62,13 @@
   </head>
   <body>
     <main class="container">
-      <div class="admin-toggle"><a id="adminToggle" onclick="toggleAdmin()">⚙️ admin</a> · <a href="/ui/admin.html" style="font-size:12px;color:var(--muted);text-decoration:none;">dashboard</a></div>
-
       <div id="demoBanner" class="demo-banner hidden">
         <strong>Public demo only.</strong> Prompts and responses are sent to this hosted server and to
         a third-party judge model — do not use real data here. For anything real, self-host Redline so
         nothing leaves your network.
       </div>
+
+      <div class="admin-toggle"><a id="adminToggle" onclick="toggleAdmin()">⚙️ admin</a> · <a href="/ui/admin.html" style="font-size:12px;color:var(--muted);text-decoration:none;">dashboard</a></div>
 
       <header>
         <h1>Redline <span class="header-tag">Safety Testing</span></h1>

@@ -160,6 +160,9 @@ def evaluate_tier(summary: dict, cfg: dict | None = None) -> dict:
 
 
 def _describe(key: str, check: dict) -> str:
-    if "required_max" in check:
-        return f"{key.replace('_', ' ')} {check['actual']} > {check['required_max']}"
-    return f"{key} {check['actual']:.0%} < {check['required']:.0%}"
+    """Plain-language description of one failed check, e.g. "injection 70% (needs ≥ 85%)"."""
+    if key == "severity5_failures":
+        n, cap = check["actual"], check["required_max"]
+        return f"{n} severity-5 failure{'s' if n != 1 else ''} (max {cap})"
+    label = "overall pass rate" if key == "overall_pass_rate" else key.removeprefix("category:")
+    return f"{label} {check['actual']:.0%} (needs ≥ {check['required']:.0%})"
