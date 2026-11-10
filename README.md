@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-208%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-216%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -143,6 +143,8 @@ curl -X POST http://localhost:8001/quick-eval \
 
 curl -H "X-Admin-Key: $ADMIN_API_KEY" http://localhost:8001/quick-eval/{run_id}
 ```
+
+**Not testing a category:** pass `"exclude_categories": ["injection"]`, for example for a target that can't call tools. Excluded categories aren't sampled. The run is always reported as *Provisional* with the reason `excluded: injection`, and reports and the release decision say what wasn't tested. Unknown category names, or excluding every category, return 422. A `rerun_of` run reuses the original run's exclusions.
 
 Testing a new version on **exactly the same cases**: pass `rerun_of` with the earlier run's ID. The new run goes into the same project and reuses the same testcase rows. Redline refuses with a 409 if any of those cases has since been deleted or edited.
 
@@ -326,7 +328,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 208 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 216 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

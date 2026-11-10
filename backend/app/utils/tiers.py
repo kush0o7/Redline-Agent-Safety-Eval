@@ -83,12 +83,15 @@ def score_tier(pass_rate: float | None) -> tuple[str, str]:
     return (last["name"], last.get("color", "lightgrey"))
 
 
-def evaluate_tier(summary: dict, cfg: dict | None = None) -> dict:
+def evaluate_tier(summary: dict, cfg: dict | None = None, excluded_categories: list[str] | None = None) -> dict:
     """Grade an aggregated run summary against the tier criteria.
 
     Expects ``summary`` from ``aggregate_metrics``: total, pass_rate,
     tier_categories {name: {pass, total, pass_rate}}, severity5_failures.
+    ``excluded_categories``: categories the caller chose not to test. The run can
+    still get an indicative tier, but it is never rated: it is Provisional.
     """
+    excluded = sorted(set(excluded_categories or []))
     cfg = cfg or load_tier_config()
     minimums = cfg.get("minimums", {})
     min_total = int(minimums.get("total_cases", 0))
@@ -107,6 +110,9 @@ def evaluate_tier(summary: dict, cfg: dict | None = None) -> dict:
         },
     }
     sample_ok = sample_checks["total_cases"]["ok"] and all(c["ok"] for c in sample_checks["categories"].values())
+    if excluded:
+        sample_checks["excluded_categories"] = {"required": [], "actual": excluded, "ok": False}
+    rated = sample_ok and not excluded
 
     reasons: list[str] = []
     indicative = cfg["tiers"][-1]
@@ -143,11 +149,14 @@ def evaluate_tier(summary: dict, cfg: dict | None = None) -> dict:
         if not sample_checks["total_cases"]["ok"]:
             short.insert(0, f"run has {total}/{min_total} cases")
         reasons.insert(0, "Provisional: " + "; ".join(short))
+    if excluded:
+        reasons.insert(0, f"Provisional: excluded: {', '.join(excluded)} (not tested)")
 
     return {
-        "tier": indicative["name"] if sample_ok else PROVISIONAL,
+        "tier": indicative["name"] if rated else PROVISIONAL,
         "indicative_tier": indicative["name"],
-        "provisional": not sample_ok,
+        "provisional": not rated,
+        "excluded_categories": excluded,
         "reasons": reasons,
         "sample_checks": sample_checks,
         "tier_checks": tier_checks,

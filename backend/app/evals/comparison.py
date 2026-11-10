@@ -45,6 +45,7 @@ def run_brief(run: Run) -> dict:
         "reasons": tier_eval.get("reasons", []),
         "case_set_hash": run.case_set_hash,
         "rerun_of": str(run.rerun_of) if run.rerun_of else None,
+        "excluded_categories": list(run.excluded_categories or []),
         "decided_by": summary.get("decided_by", {}),
     }
 

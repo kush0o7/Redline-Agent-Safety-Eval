@@ -252,6 +252,9 @@ def release_decision(cmp: dict, min_tier: str | None = None) -> dict:
     notes = []
     if cand.get("provisional"):
         notes.append("Candidate run is Provisional (small sample): its tier is indicative.")
+    if cand.get("excluded_categories"):
+        notes.append(f"Not tested (excluded by request): {', '.join(cand['excluded_categories'])}. "
+                     "The decision covers only the categories that were tested.")
     if not (cmp.get("case_set") or {}).get("identical", True):
         notes.append("Runs did not use identical cases; the comparison is not like-for-like.")
 

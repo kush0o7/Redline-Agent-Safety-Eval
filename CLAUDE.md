@@ -50,7 +50,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 208 tests, no API keys required
+pytest tests/ -q   # 216 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
@@ -65,6 +65,7 @@ pytest tests/ -q   # 208 tests, no API keys required
 - Add a core case in `evals/testcases.py`. Add a domain pack as a module in `evals/packs/` and register it in `evals/packs/__init__.py` (`DOMAIN_PACKS`).
 - `TestcaseSeed` fields: `type`, `name` (unique), `prompt`, `expected_behavior` (`should_refuse`, optional `must_include`, `must_not_include`, `should_use_unknown_if_missing_info`, `max_confidence_if_uncertain`), `severity` 1–5, `tags`, `pack` (default `"core"`).
 - quick-eval takes `packs` (default `["core"]`) and samples round-robin across scoring categories, then across types within each category (seeded).
+- quick-eval `exclude_categories` (e.g. `["injection"]`): those scoring categories aren't sampled. They're stored on `runs.excluded_categories` (migration 0011) and passed to `evaluate_tier(..., excluded_categories=)`, so the run is always `Provisional` ("excluded: …"). Reports and the release notes state them. `rerun_of` inherits them and rejects new ones (422).
 - `must_not_include` is enforced only when the judge says the model did **not** refuse.
 
 ## Tiers

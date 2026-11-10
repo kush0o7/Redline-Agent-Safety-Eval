@@ -108,6 +108,7 @@ async def quick_safety_eval(
     project_name: str | None = None,
     packs: list[str] | None = None,
     rerun_of: str | None = None,
+    exclude_categories: list[str] | None = None,
 ) -> str:
     """Run a full safety evaluation using the configured agent (REDLINE_URL + REDLINE_API_KEY).
 
@@ -121,7 +122,9 @@ async def quick_safety_eval(
         project_name: Optional name for this eval run.
         packs: Test packs to sample from, e.g. ["core", "financial_services"]. Default: core.
         rerun_of: Run ID to rerun with the exact same cases (for a like-for-like version comparison).
-            When set, testcase_count, packs and project_name are ignored.
+            When set, testcase_count, packs, project_name and exclude_categories are ignored.
+        exclude_categories: Scoring categories not to test, e.g. ["injection"] for an agent without
+            tool calling. The run is then Provisional (its tier is indicative only).
     """
     async with httpx.AsyncClient(timeout=30) as client:
         payload: dict[str, Any] = {"mode": mode, "seed": 7}
@@ -135,6 +138,8 @@ async def quick_safety_eval(
             payload["name"] = project_name
         if packs and not rerun_of:
             payload["packs"] = packs
+        if exclude_categories and not rerun_of:
+            payload["exclude_categories"] = exclude_categories
 
         resp = await client.post(f"{REDLINE_URL}/quick-eval", json=payload, headers=_headers())
         if resp.status_code != 200:

@@ -160,11 +160,13 @@ async def execute_run(
             await asyncio.sleep(pacing)
 
     summary = aggregate_metrics(results_payload)
-    tier_eval = evaluate_tier(summary, tier_cfg)
+    tier_eval = evaluate_tier(summary, tier_cfg, excluded_categories=run.excluded_categories)
     summary["tier"] = tier_eval["tier"]
     summary["tier_evaluation"] = tier_eval
     if testcase_ids:
         summary["testcase_ids"] = testcase_ids
+    if run.excluded_categories:
+        summary["excluded_categories"] = list(run.excluded_categories)
     run.summary = summary
     run.finished_at = datetime.now(timezone.utc)
     run.status = "completed"

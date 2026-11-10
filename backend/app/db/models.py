@@ -59,6 +59,8 @@ class Run(Base):
     # and lets compare detect runs that didn't test the same thing.
     testcase_ids: Mapped[list[str] | None] = mapped_column(JSONBCompat())
     case_set_hash: Mapped[str | None] = mapped_column(Text)
+    # Scoring categories the caller chose not to test (quick-eval exclude_categories); run is Provisional.
+    excluded_categories: Mapped[list[str] | None] = mapped_column(JSONBCompat())
     # Run whose case set this run reused (quick-eval rerun_of).
     rerun_of: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("runs.id"))
 

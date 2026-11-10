@@ -123,10 +123,16 @@ class QuickEvalCreate(BaseModel):
     agent_endpoint_url: str | None = Field(default=None, max_length=512, description="OpenAI-compatible chat endpoint to test")
     agent_endpoint_key: str | None = Field(default=None, max_length=256, description="API key for the agent endpoint")
     submitter: str | None = Field(default=None, max_length=60, description="Display name for the leaderboard")
+    exclude_categories: list[str] = Field(
+        default_factory=list, max_length=10,
+        description='Scoring categories not to test, e.g. ["injection"] for a target without tool calling. '
+        "Excluded categories are not sampled and the run is reported as Provisional.",
+    )
     rerun_of: uuid.UUID | None = Field(
         default=None,
         description="Rerun the exact case set of this earlier run (same project, same testcase rows) "
-        "so the two runs can be compared like-for-like. Cannot be combined with testcase_count, packs or name.",
+        "so the two runs can be compared like-for-like. Cannot be combined with testcase_count, packs, name "
+        "or exclude_categories (the original run's exclusions are reused).",
     )
 
 
@@ -182,7 +188,24 @@ def _available_packs(seeds: list[TestcaseSeed]) -> set[str]:
     return {s.pack for s in seeds}
 
 
-def _sample_new_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project, list[Testcase]]:
+def _excluded_pool(payload: QuickEvalCreate, pool: list[TestcaseSeed]) -> tuple[list[TestcaseSeed], list[str]]:
+    """Drop the excluded scoring categories from the pool (422 on unknown names or excluding everything)."""
+    excluded = sorted(set(payload.exclude_categories))
+    if not excluded:
+        return pool, []
+    cfg = load_tier_config()
+    present = {tier_category(s.type, s.pack, cfg) for s in pool}
+    unknown = set(excluded) - present
+    if unknown:
+        raise HTTPException(status_code=422, detail=(
+            f"Unknown category in exclude_categories: {', '.join(sorted(unknown))}. "
+            f"Categories in the selected packs: {', '.join(sorted(present))}"))
+    if present <= set(excluded):
+        raise HTTPException(status_code=422, detail="exclude_categories would exclude every category; nothing left to test")
+    return [s for s in pool if tier_category(s.type, s.pack, cfg) not in set(excluded)], excluded
+
+
+def _sample_new_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project, list[Testcase], list[str]]:
     """New project + a fresh seeded, stratified sample of cases."""
     # Validate before creating anything, so a rejected request leaves no orphan project.
     max_cases = 50 if settings.is_demo else settings.max_testcases_per_run
@@ -193,6 +216,7 @@ def _sample_new_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project
     if unknown:
         raise HTTPException(status_code=422, detail=f"Unknown test pack(s): {', '.join(sorted(unknown))}")
     pool = [s for s in all_seeds if s.pack in set(payload.packs)]
+    pool, excluded = _excluded_pool(payload, pool)
     seeds = _select_testcase_seeds(pool, payload.testcase_count, payload.seed)
     if not seeds:
         raise HTTPException(status_code=500, detail="No test cases available to seed")
@@ -222,12 +246,12 @@ def _sample_new_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project
     ]
     db.add_all(testcases)
     db.commit()
-    return project, testcases
+    return project, testcases, excluded
 
 
-def _rerun_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project, list[Testcase]]:
-    """The original run's project and its exact testcase rows, verified unchanged."""
-    conflicting = sorted({"testcase_count", "packs", "name"} & payload.model_fields_set)
+def _rerun_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project, list[Testcase], list[str]]:
+    """The original run's project and its exact testcase rows (verified unchanged) and its exclusions."""
+    conflicting = sorted({"testcase_count", "packs", "name", "exclude_categories"} & payload.model_fields_set)
     if conflicting:
         raise HTTPException(
             status_code=422,
@@ -246,7 +270,7 @@ def _rerun_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project, lis
         )
     rows = db.query(Testcase).filter(Testcase.id.in_(case_set.testcase_ids)).all()
     by_id = {str(tc.id): tc for tc in rows}
-    return original.project, [by_id[i] for i in case_set.testcase_ids]
+    return original.project, [by_id[i] for i in case_set.testcase_ids], list(original.excluded_categories or [])
 
 
 @router.post("/quick-eval", dependencies=[Depends(_verify_eval_access)])
@@ -271,9 +295,9 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         raise HTTPException(status_code=503, detail="Server is busy — too many evals queued. Try again shortly.")
 
     if payload.rerun_of is not None:
-        project, testcases = _rerun_case_set(payload, db)
+        project, testcases, excluded = _rerun_case_set(payload, db)
     else:
-        project, testcases = _sample_new_case_set(payload, db)
+        project, testcases, excluded = _sample_new_case_set(payload, db)
     testcase_ids, set_hash = build_case_set(testcases)
 
     # Generate a per-run stream token so the admin key never appears in any URL
@@ -289,6 +313,7 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         testcase_ids=testcase_ids,
         case_set_hash=set_hash,
         rerun_of=payload.rerun_of,
+        excluded_categories=excluded or None,
         agent_endpoint_url=payload.agent_endpoint_url,
         agent_endpoint_key=encrypt_field(payload.agent_endpoint_key),
         stream_token=stream_token,
@@ -308,6 +333,7 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         "testcase_count": len(testcase_ids),
         "case_set_hash": set_hash,
         "rerun_of": str(payload.rerun_of) if payload.rerun_of else None,
+        "excluded_categories": excluded,
         "results_url": f"/quick-eval/{run_id}",
         "stream_url": f"/projects/{project_id}/runs/{run_id}/stream?token={stream_token}",
     }
@@ -344,6 +370,7 @@ def quick_eval_status(run_id: str, include_full_outputs: bool = False, x_admin_k
         "summary": run.summary,
         "case_set_hash": run.case_set_hash,
         "rerun_of": str(run.rerun_of) if run.rerun_of else None,
+        "excluded_categories": list(run.excluded_categories or []),
     }
 
     if run.status == "completed":
