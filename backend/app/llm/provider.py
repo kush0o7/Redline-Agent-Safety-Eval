@@ -168,6 +168,106 @@ class OpenAIProvider(BaseProvider):
         raise last_exc or RuntimeError("Request failed after retries")
 
 
+# ── Block-based wire formats (Anthropic Messages, Bedrock Converse) ──
+# Both put the system prompt outside the message list, carry tool calls as
+# content blocks on the assistant turn, carry tool results as blocks on a USER
+# turn, and expect roles to alternate, so consecutive same-role turns (e.g.
+# several tool results in a row) are merged into one message.
+
+def _merge_same_role(turns: list[dict]) -> list[dict]:
+    merged: list[dict] = []
+    for turn in turns:
+        if not turn["content"]:
+            continue
+        if merged and merged[-1]["role"] == turn["role"]:
+            merged[-1]["content"].extend(turn["content"])
+        else:
+            merged.append({"role": turn["role"], "content": list(turn["content"])})
+    return merged
+
+
+def _system_text(messages: Sequence[LLMMessage]) -> str:
+    return "\n".join(m.content for m in messages if m.role == "system" and m.content)
+
+
+def to_anthropic_messages(messages: Sequence[LLMMessage]) -> list[dict]:
+    turns: list[dict] = []
+    for m in messages:
+        if m.role == "system":
+            continue
+        if m.role == "tool":
+            turns.append({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": m.tool_call_id or "", "content": m.content},
+            ]})
+            continue
+        blocks: list[dict] = [{"type": "text", "text": m.content}] if m.content else []
+        if m.role == "assistant":
+            blocks += [{"type": "tool_use", "id": c.id, "name": c.name, "input": c.arguments} for c in m.tool_calls or []]
+        turns.append({"role": m.role, "content": blocks})
+    return _merge_same_role(turns)
+
+
+def to_anthropic_tools(tools: Sequence[ToolSpec]) -> list[dict]:
+    return [{"name": t.name, "description": t.description, "input_schema": t.parameters} for t in tools]
+
+
+def parse_anthropic_reply(data: dict) -> LLMReply:
+    content = data.get("content") or []
+    if isinstance(content, str):
+        return LLMReply(text=content)
+    texts, calls = [], []
+    for i, block in enumerate(content):
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text":
+            texts.append(block.get("text", ""))
+        elif block.get("type") == "tool_use":
+            calls.append(ToolCall(id=block.get("id") or f"toolu_{i}", name=block.get("name", ""),
+                                  arguments=_parse_arguments(block.get("input"))))
+    return LLMReply(text="".join(texts), tool_calls=calls)
+
+
+def to_bedrock_messages(messages: Sequence[LLMMessage]) -> list[dict]:
+    turns: list[dict] = []
+    for m in messages:
+        if m.role == "system":
+            continue
+        if m.role == "tool":
+            turns.append({"role": "user", "content": [
+                {"toolResult": {"toolUseId": m.tool_call_id or "", "content": [{"text": m.content or "(empty)"}]}},
+            ]})
+            continue
+        if m.role not in {"user", "assistant"}:
+            continue
+        blocks: list[dict] = [{"text": m.content}] if m.content else []
+        if m.role == "assistant":
+            blocks += [{"toolUse": {"toolUseId": c.id, "name": c.name, "input": c.arguments}} for c in m.tool_calls or []]
+        turns.append({"role": m.role, "content": blocks})
+    return _merge_same_role(turns)
+
+
+def to_bedrock_tool_config(tools: Sequence[ToolSpec]) -> dict:
+    return {"tools": [
+        {"toolSpec": {"name": t.name, "description": t.description, "inputSchema": {"json": t.parameters}}}
+        for t in tools
+    ]}
+
+
+def parse_bedrock_reply(resp: dict) -> LLMReply:
+    blocks = ((resp.get("output") or {}).get("message") or {}).get("content") or []
+    texts, calls = [], []
+    for i, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            continue
+        if "text" in block:
+            texts.append(block.get("text", ""))
+        elif "toolUse" in block:
+            use = block["toolUse"] or {}
+            calls.append(ToolCall(id=use.get("toolUseId") or f"tooluse_{i}", name=use.get("name", ""),
+                                  arguments=_parse_arguments(use.get("input"))))
+    return LLMReply(text="".join(texts), tool_calls=calls)
+
+
 class AnthropicProvider(BaseProvider):
     def __init__(self) -> None:
         if not settings.anthropic_api_key:
@@ -175,38 +275,42 @@ class AnthropicProvider(BaseProvider):
         self.api_key = settings.anthropic_api_key
         self.base_url = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
 
-    async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
-        system_parts = [m.content for m in messages if m.role == "system"]
-        filtered = [m for m in messages if m.role != "system"]
-        payload = {
+    def _payload(self, messages: Sequence[LLMMessage], model: str, temperature: float) -> dict:
+        payload: dict = {
             "model": model,
             "max_tokens": 1024,
-            "messages": [{"role": m.role, "content": m.content} for m in filtered],
+            "messages": to_anthropic_messages(messages),
             "temperature": temperature,
         }
-        if system_parts:
-            payload["system"] = "\n".join(system_parts)
+        system = _system_text(messages)
+        if system:
+            payload["system"] = system
+        return payload
 
+    async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
+        data = await self._post(self._payload(messages, model, temperature))
+        return parse_anthropic_reply(data).text
+
+    async def complete_with_tools(self, messages, model, temperature, seed, tools) -> LLMReply:
+        payload = self._payload(messages, model, temperature)
+        payload["tools"] = to_anthropic_tools(tools)
+        return parse_anthropic_reply(await self._post(payload))
+
+    async def _post(self, payload: dict) -> dict:
         headers = {
             "x-api-key": self.api_key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(f"{self.base_url}/v1/messages", json=payload, headers=headers)
             resp.raise_for_status()
-            data = resp.json()
-            content_blocks = data.get("content", [])
-            texts = []
-            for block in content_blocks:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    texts.append(block.get("text", ""))
-            if texts:
-                return "".join(texts)
-            # fallback in case content is a string
-            if isinstance(content_blocks, str):
-                return content_blocks
-            return ""
+            return resp.json()
+
+
+def _is_bedrock_tool_unsupported(exc: Exception) -> bool:
+    error = (getattr(exc, "response", None) or {}).get("Error") or {}
+    return error.get("Code") == "ValidationException" and "tool" in str(error.get("Message", "")).lower()
 
 
 class BedrockProvider(BaseProvider):
@@ -226,42 +330,33 @@ class BedrockProvider(BaseProvider):
 
         self.client = session.client("bedrock-runtime", region_name=region)
 
-    async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
-        del seed
-        system_parts = [m.content for m in messages if m.role == "system"]
-        filtered = [m for m in messages if m.role != "system"]
-
-        bedrock_messages = []
-        for msg in filtered:
-            if msg.role not in {"user", "assistant"}:
-                continue
-            bedrock_messages.append(
-                {
-                    "role": msg.role,
-                    "content": [{"text": msg.content}],
-                }
-            )
-
+    def _payload(self, messages: Sequence[LLMMessage], model: str, temperature: float) -> dict:
         payload: dict = {
             "modelId": model,
-            "messages": bedrock_messages,
-            "inferenceConfig": {
-                "temperature": temperature,
-                "maxTokens": 1024,
-            },
+            "messages": to_bedrock_messages(messages),
+            "inferenceConfig": {"temperature": temperature, "maxTokens": 1024},
         }
-        if system_parts:
-            payload["system"] = [{"text": "\n".join(system_parts)}]
+        system = _system_text(messages)
+        if system:
+            payload["system"] = [{"text": system}]
+        return payload
 
-        resp = await asyncio.to_thread(self.client.converse, **payload)
-        output = resp.get("output", {})
-        message = output.get("message", {})
-        content_blocks = message.get("content", [])
-        texts = []
-        for block in content_blocks:
-            if isinstance(block, dict) and "text" in block:
-                texts.append(block.get("text", ""))
-        return "".join(texts)
+    async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
+        del seed
+        resp = await asyncio.to_thread(self.client.converse, **self._payload(messages, model, temperature))
+        return parse_bedrock_reply(resp).text
+
+    async def complete_with_tools(self, messages, model, temperature, seed, tools) -> LLMReply:
+        del seed
+        payload = self._payload(messages, model, temperature)
+        payload["toolConfig"] = to_bedrock_tool_config(tools)
+        try:
+            resp = await asyncio.to_thread(self.client.converse, **payload)
+        except Exception as exc:  # botocore ClientError; not imported so boto3 stays optional
+            if _is_bedrock_tool_unsupported(exc):
+                raise ToolCallingNotSupported(f"Bedrock model {model} rejected tool use: {exc}") from exc
+            raise
+        return parse_bedrock_reply(resp)
 
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")

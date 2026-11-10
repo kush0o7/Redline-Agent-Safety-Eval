@@ -619,7 +619,8 @@
             <strong>Injection tests:</strong> injection payloads arrive as real tool results, but the
             scenarios are single-task and the tools are stubs, so a case shows whether the agent
             <em>tried</em> the attacker's action, not what it would have done to a real system. The
-            target must support tool calling (OpenAI-compatible endpoints and Ollama for now).
+            target must support tool calling (OpenAI-compatible endpoints, Ollama, Anthropic and Bedrock); a run against a target without
+            tool support fails with a clear error instead of being scored.
           </p>
           <p>
             <strong>System prompt:</strong> every request is currently sent with Redline's short

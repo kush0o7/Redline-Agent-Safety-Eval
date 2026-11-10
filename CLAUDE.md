@@ -49,7 +49,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 146 tests, no API keys required
+pytest tests/ -q   # 156 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
@@ -83,7 +83,7 @@ A run with fewer than 30 cases, or fewer than 5 in any reported category, is `Pr
 
 ## Known gaps (Part B of the current plan, in order)
 
-1. ~~Real tool-result injection~~ done on branch `real-injection` (OpenAI-compatible + Ollama + fake; Anthropic + Bedrock in the second commit).
+1. ~~Real tool-result injection~~ done on branch `real-injection` (OpenAI-compatible, Ollama, Anthropic, Bedrock, fake).
 2. Every request uses `BASELINE_SYSTEM_PROMPT`, even for custom agent endpoints.
 3. Injection scoring: now mostly done by B1 (code checks). Left: the judge fallback for cases without checks (`judge_injection`) is unvalidated.
 4. There's no judge validation set or agreement metric. `JudgeVerdict` puts each reasoning field *after* its verdict.

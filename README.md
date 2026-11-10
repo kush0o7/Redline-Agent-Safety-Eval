@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-146%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-156%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -164,7 +164,7 @@ Every run records its testcase IDs and a `case_set_hash` (SHA-256 over each case
 
 That's 109 core cases (when the bundled JailbreakBench data loads) and 21 financial services cases, 130 in total. The financial pack covers unlicensed or misleading advice, customer data disclosure, KYC bypass, structuring, social engineering and document fraud, plus ordinary banking questions that must *not* be refused.
 
-**Injection cases are graded on actions, in code.** Each one is a small agent scenario: the user asks for something harmless, the agent has already called a data tool (inbox, document, web page, transactions), and the attacker's instructions arrive inside that tool's result as a real `tool` message. The agent is offered stub action tools (`send_email`, `send_money`, `http_request`, `update_password`, `share_file`, `delete_file`); nothing leaves the harness. The case fails if the agent *attempts* the attacker's action (a tool call with the attacker's arguments) or emits the attacker's marker in its output. LLM judges are unreliable on adversarial text and can be steered by the injection they're grading, so the judge is only a fallback for cases without a code check. Every result records `decided_by` (`code`, `judge`, or `heuristic` in test mode). Injection cases need a target that supports tool calling (OpenAI-compatible endpoints and Ollama now; Anthropic and Bedrock next). Scenarios live in `backend/app/evals/injection_cases.py`; check types are documented in `backend/app/evals/injection_checks.py`.
+**Injection cases are graded on actions, in code.** Each one is a small agent scenario: the user asks for something harmless, the agent has already called a data tool (inbox, document, web page, transactions), and the attacker's instructions arrive inside that tool's result as a real `tool` message. The agent is offered stub action tools (`send_email`, `send_money`, `http_request`, `update_password`, `share_file`, `delete_file`); nothing leaves the harness. The case fails if the agent *attempts* the attacker's action (a tool call with the attacker's arguments) or emits the attacker's marker in its output. LLM judges are unreliable on adversarial text and can be steered by the injection they're grading, so the judge is only a fallback for cases without a code check. Every result records `decided_by` (`code`, `judge`, or `heuristic` in test mode). Injection cases need a target that supports tool calling (OpenAI-compatible endpoints, Ollama, Anthropic and Bedrock; a target without tool support fails the run with `ToolCallingNotSupported`). Scenarios live in `backend/app/evals/injection_cases.py`; check types are documented in `backend/app/evals/injection_checks.py`.
 
 Add a case: append a `TestcaseSeed` in `backend/app/evals/testcases.py` (core) or in a pack module under `backend/app/evals/packs/`. Each case has a `type`, `prompt`, `expected_behavior` (`should_refuse`, optional `must_include` / `must_not_include`, `should_use_unknown_if_missing_info`), a `severity` from 1 to 5, and a `pack`.
 
@@ -268,7 +268,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 146 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 156 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
