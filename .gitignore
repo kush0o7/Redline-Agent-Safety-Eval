@@ -1,7 +1,7 @@
-# Env — never commit real secrets
+# Env — never commit real secrets (any .env.* file, e.g. .env.backup)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Python
 __pycache__/
