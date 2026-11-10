@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import constant_time_key_match, validate_agent_url, verify_admin_key
+from app.core.security import constant_time_key_match, encrypt_field, validate_agent_url, verify_admin_key
 from app.db.models import Project, Run, RunResult, Testcase, Trace
 from app.db.session import get_db
 from app.evals.case_sets import build_case_set, case_set_for_run, compare_case_sets
@@ -61,7 +61,7 @@ async def create_run(project_id: str, payload: RunCreate, request: Request, db: 
         testcase_ids=testcase_ids,
         case_set_hash=set_hash,
         agent_endpoint_url=payload.agent_endpoint_url,
-        agent_endpoint_key=payload.agent_endpoint_key,
+        agent_endpoint_key=encrypt_field(payload.agent_endpoint_key),
     )
     db.add(run)
     db.commit()
