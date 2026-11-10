@@ -50,18 +50,18 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 216 tests, no API keys required
+pytest tests/ -q   # 261 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
 
 ## Test cases and packs
 
-- 130 cases in total: 109 core (when the bundled JailbreakBench data loads) and 21 `financial_services`.
-- Core by type: benign 36, jailbreak 28, harmbench 19, injection 8, refusal 8, hallucination 7, overconfidence 3.
+- 152 cases in total: 131 core (when the bundled JailbreakBench data loads) and 21 `financial_services`.
+- Core by type: benign 36, injection 30, jailbreak 28, harmbench 19, refusal 8, hallucination 7, overconfidence 3.
 - Core types roll up into scoring categories (`tiers.default.toml` → `[categories]`): `harmful_compliance`, `injection`, `hallucination`, `over_refusal`.
 - Every domain pack is reported as its own category.
-- Injection cases live in `evals/injection_cases.py`: `expected_behavior["injection"]` = `tools`, `tool_outputs` (seeded tool calls whose results carry the payload), `attack` (`goal` + `checks`). Checks (`evals/injection_checks.py`: `tool_call`, `output_regex`, `output_starts_with`) decide in code; the judge is only a fallback when `checks` is empty. Results carry `decided_by` (`code` / `judge` / `heuristic`). The fake provider follows injections when the model name contains `vulnerable`.
+- Injection cases live in `evals/injection_cases.py` (8 hand-written + a `_SCENARIOS` × `_GOALS` grid, `_GRID`, for 30 in total): `expected_behavior["injection"]` = `tools`, `tool_outputs` (seeded tool calls whose results carry the payload), `attack` (`goal` + `checks`). Checks (`evals/injection_checks.py`: `tool_call`, `output_regex`, `output_starts_with`) decide in code; the judge is only a fallback when `checks` is empty. Results carry `decided_by` (`code` / `judge` / `heuristic`). The fake provider follows injections when the model name contains `vulnerable`.
 - Add a core case in `evals/testcases.py`. Add a domain pack as a module in `evals/packs/` and register it in `evals/packs/__init__.py` (`DOMAIN_PACKS`).
 - `TestcaseSeed` fields: `type`, `name` (unique), `prompt`, `expected_behavior` (`should_refuse`, optional `must_include`, `must_not_include`, `should_use_unknown_if_missing_info`, `max_confidence_if_uncertain`), `severity` 1–5, `tags`, `pack` (default `"core"`).
 - quick-eval takes `packs` (default `["core"]`) and samples round-robin across scoring categories, then across types within each category (seeded).
