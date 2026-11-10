@@ -63,3 +63,11 @@ def test_compare_view_labels_simulated_models_and_sends_key():
     # Outside demo mode compare + report need the key: the fetch sends it, the report opens from a blob.
     assert '/compare?base_run_id=${encodeURIComponent(baseId)}`,\n      { headers: getAdminKey()' in js
     assert "URL.createObjectURL(blob)" in js and '"X-Admin-Key": getAdminKey()' in js
+
+
+def test_methodology_crescendo_figures_match_paper_table_4():
+    """arXiv 2404.01833v3, Table 4: average ASR 56.2 / 82.6, binary ASR 98.0 / 100.0 (GPT-4 / Gemini-Pro)."""
+    html = (UI / "methodology.html").read_text()
+    for needle in ("56.2%", "82.6%", "98%", "100%", "Table 4", "binary", "average", "49 of 50"):
+        assert needle in html, needle
+    assert "Crescendo achieved 56% ASR against GPT-4" not in html  # the old, metric-less wording
