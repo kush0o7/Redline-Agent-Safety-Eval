@@ -127,6 +127,11 @@
           <label class="toggle-label"><input class="pack-box" type="checkbox" value="financial_services" /> Financial services</label>
         </div>
 
+        <label class="rerun-row">
+          Re-run the exact cases of run <span class="hint-inline">optional — for a like-for-like comparison of a new model version</span>
+          <input id="rerunOf" type="text" placeholder="run_id of the earlier run (ignores pack and count)" />
+        </label>
+
         <div class="agent-endpoint-section">
           <div class="agent-endpoint-toggle">
             <label class="toggle-label">
@@ -210,6 +215,27 @@
           <p id="runMeta" class="run-meta"></p>
         </div>
       </div>
+
+      <!-- Compare two runs (version-to-version regression) -->
+      <section class="card" id="compareSection">
+        <h2>Compare two runs</h2>
+        <p class="hint">Before = the earlier version, after = the new one. Start the after-run with “Re-run the exact cases of run” so both use identical cases.</p>
+        <div class="compare-inputs">
+          <label>Before run ID <input id="compareBaseId" type="text" placeholder="run_id (before)" /></label>
+          <label>After run ID <input id="compareCandidateId" type="text" placeholder="run_id (after)" /></label>
+        </div>
+        <button id="compareBtn" class="btn-secondary">Compare</button>
+        <p id="compareError" class="hint hidden"></p>
+        <div id="compareResult" class="hidden">
+          <div id="compareSummary" class="compare-summary"></div>
+          <p id="compareWarning" class="hint compare-warning hidden"></p>
+          <h3>Per category</h3>
+          <div class="table-scroll"><table class="compare-table"><thead><tr><th>Category</th><th>Before</th><th>After</th><th>Change</th></tr></thead><tbody id="compareCategories"></tbody></table></div>
+          <h3>Flipped cases <span id="compareFlipCount" class="badge badge-red"></span></h3>
+          <div id="compareFlips" class="failures-list"></div>
+          <p><a id="compareReportLink" href="#" target="_blank" rel="noopener">Open the full HTML report ↗</a></p>
+        </div>
+      </section>
 
       <!-- Advanced (collapsed) -->
       <details class="card">

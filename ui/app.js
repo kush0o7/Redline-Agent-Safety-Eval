@@ -295,6 +295,7 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
 
     setProgress(5, "Queuing run…");
 
+    const rerunOf     = document.getElementById("rerunOf").value.trim() || undefined;
     const count       = parseInt(document.getElementById("testcaseCount").value, 10);
     const mode        = document.getElementById("runMode").value;
     const model       = document.getElementById("runModel").value.trim() || undefined;
@@ -311,7 +312,9 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({
-        testcase_count: count, mode, packs,
+        mode,
+        // rerun_of reuses the earlier run's exact cases, so count and packs don't apply
+        ...(rerunOf ? { rerun_of: rerunOf } : { testcase_count: count, packs }),
         ...(model       && { model }),
         ...(endpointUrl && { agent_endpoint_url: endpointUrl }),
         ...(endpointKey && { agent_endpoint_key: endpointKey }),
@@ -378,6 +381,9 @@ document.getElementById("runQuickEval").addEventListener("click", async () => {
     }).then(r => r.json());
     setProgress(100, "Done.");
     renderResults(final);
+    // Pre-fill the compare form: this run is the "after"; its rerun source is the "before".
+    document.getElementById("compareCandidateId").value = run_id;
+    if (final.rerun_of) document.getElementById("compareBaseId").value = final.rerun_of;
 
   } catch (err) {
     progressBar.style.background = "#ef4444";
@@ -458,4 +464,77 @@ document.getElementById("getTrace").addEventListener("click", async () => {
     const tid = document.getElementById("traceTestcaseId").value.trim();
     rawOutput(await apiFetch(`/projects/${pid}/runs/${rid}/traces/${tid}`));
   } catch (err) { rawOutput(String(err)); }
+});
+
+
+// ── Compare two runs ──────────────────────────────────────────────────────────
+
+const COMPARE_DECIDED = { code: "code check (agent actions)", judge: "LLM judge", heuristic: "keyword heuristic (test mode)" };
+
+function pctOrDash(v) { return v == null ? "—" : `${Math.round(v * 100)}%`; }
+function ptsHtml(d) {
+  if (d == null) return "—";
+  const pts = Math.round(d * 100);
+  const color = pts < 0 ? "#ef4444" : pts > 0 ? "#22c55e" : "var(--muted)";
+  return `<span style="color:${color}">${pts > 0 ? "+" : ""}${pts} pts</span>`;
+}
+function groupCell(g) {
+  if (!g) return "—";
+  const ci = g.ci_low != null ? ` <span style="color:var(--muted);font-size:11px">${Math.round(g.ci_low*100)}–${Math.round(g.ci_high*100)}%</span>` : "";
+  return `${pctOrDash(g.pass_rate)} (${g.pass}/${g.total})${ci}`;
+}
+
+function renderComparison(cmp, baseId, candId) {
+  const tc = cmp.tier_change || {};
+  const regs = (cmp.flipped || {}).regressions || [];
+  const imps = (cmp.flipped || {}).improvements || [];
+  document.getElementById("compareSummary").innerHTML = `
+    <div><span class="compare-k">Pass rate</span> ${pctOrDash(cmp.base_pass_rate)} → ${pctOrDash(cmp.candidate_pass_rate)} (${ptsHtml(cmp.pass_rate_delta)})</div>
+    <div><span class="compare-k">Tier</span> ${esc(tc.from || "—")} → ${esc(tc.to || "—")} ${tc.direction === "down" ? "⬇️" : tc.direction === "up" ? "⬆️" : ""}</div>
+    <div><span class="compare-k">Models</span> ${esc((cmp.base || {}).model || "?")} → ${esc((cmp.candidate || {}).model || "?")}</div>
+    <div><span class="compare-k">Shared cases</span> ${cmp.common_total} · ${regs.length} pass→fail · ${imps.length} fail→pass</div>`;
+  const warn = document.getElementById("compareWarning");
+  const cs = cmp.case_set || {};
+  warn.textContent = cs.identical ? "" : `⚠️ ${cs.warning || "These runs did not use identical cases."}`;
+  warn.classList.toggle("hidden", !!cs.identical);
+  document.getElementById("compareCategories").innerHTML = Object.entries(cmp.categories || {}).map(([name, g]) =>
+    `<tr><td>${esc(name)}</td><td>${groupCell(g.base)}</td><td>${groupCell(g.candidate)}</td><td>${ptsHtml(g.delta)}</td></tr>`).join("");
+  document.getElementById("compareFlipCount").textContent = String(regs.length);
+  document.getElementById("compareFlips").innerHTML = [...regs.map(d => [d, "pass → fail"]), ...imps.map(d => [d, "fail → pass"])].map(([d, dir]) => {
+    const evidence = (d.evidence || []).map(e => esc(e)).join("<br>");
+    return `<details class="failure-item">
+      <summary>
+        <span class="failure-type">${esc(d.type || "")}</span>
+        <span class="failure-name">${esc(d.name || d.testcase_id)}</span>
+        <span class="failure-metrics">${dir} · sev ${esc(d.severity)} · decided by ${esc(COMPARE_DECIDED[d.candidate_decided_by] || d.candidate_decided_by || "—")}</span>
+      </summary>
+      <div class="failure-detail">
+        ${d.attack_goal ? `<div class="detail-block"><div class="detail-label">Attacker's goal</div><div class="detail-text">${esc(d.attack_goal)}</div></div>` : ""}
+        <div class="detail-block"><div class="detail-label">Prompt</div><div class="detail-text">${esc(d.prompt || "")}</div></div>
+        <div class="detail-block"><div class="detail-label">Before answer (${d.base_passed ? "passed" : "failed"})</div><div class="detail-text">${esc(d.base_answer || "")}</div></div>
+        <div class="detail-block"><div class="detail-label">After answer (${d.candidate_passed ? "passed" : "failed"})</div><div class="detail-text">${esc(d.candidate_answer || "")}</div></div>
+        ${evidence ? `<div class="detail-block"><div class="detail-label">Evidence</div><div class="detail-text">${evidence}</div></div>` : ""}
+      </div>
+    </details>`;
+  }).join("") || `<p class="hint">No cases flipped.</p>`;
+  document.getElementById("compareReportLink").href =
+    `/quick-eval/${encodeURIComponent(candId)}/compare/report?base_run_id=${encodeURIComponent(baseId)}`;
+  document.getElementById("compareResult").classList.remove("hidden");
+}
+
+document.getElementById("compareBtn").addEventListener("click", async () => {
+  const baseId = document.getElementById("compareBaseId").value.trim();
+  const candId = document.getElementById("compareCandidateId").value.trim();
+  const errEl = document.getElementById("compareError");
+  errEl.classList.add("hidden");
+  try {
+    if (!baseId || !candId) throw new Error("Enter both run IDs.");
+    const resp = await fetch(`/quick-eval/${encodeURIComponent(candId)}/compare?base_run_id=${encodeURIComponent(baseId)}`);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.detail || resp.statusText);
+    renderComparison(data, baseId, candId);
+  } catch (err) {
+    errEl.textContent = `Error: ${err.message}`;
+    errEl.classList.remove("hidden");
+  }
 });

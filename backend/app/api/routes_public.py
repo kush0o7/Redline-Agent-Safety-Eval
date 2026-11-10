@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 
 from arq.constants import default_queue_name
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,6 +18,8 @@ from app.core.security import constant_time_key_match, decrypt_field, encrypt_fi
 from app.db.models import AnalyticsEvent, InviteToken, Project, Run, RunResult, Testcase
 from app.db.session import get_db
 from app.evals.case_sets import build_case_set, case_set_for_run
+from app.evals.comparison import build_comparison
+from app.reports.html_report import render_comparison_report, render_run_report
 from app.evals.testcases import TestcaseSeed, build_default_testcases
 from app.core.config import settings
 from app.utils.tiers import load_tier_config, score_tier, tier_category, tier_style
@@ -354,6 +356,48 @@ def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
         ]
 
     return response
+
+
+def _quick_eval_pair(db: Session, run_id: str, base_run_id: str) -> tuple[Run, Run]:
+    candidate = db.get(Run, _as_uuid(run_id))
+    base = db.get(Run, _as_uuid(base_run_id))
+    if not candidate or not base:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if base.project_id != candidate.project_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Runs belong to different projects, so they share no test cases. Start the second run with rerun_of=<first run_id>.",
+        )
+    return base, candidate
+
+
+def _as_uuid(value: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(str(value))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+
+# Same visibility as GET /quick-eval/{run_id}: anyone holding the run ids.
+@router.get("/quick-eval/{run_id}/report", response_class=HTMLResponse)
+def quick_eval_report(run_id: str, db: Session = Depends(get_db)):
+    run = db.get(Run, _as_uuid(run_id))
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return HTMLResponse(render_run_report(db, run))
+
+
+@router.get("/quick-eval/{run_id}/compare")
+def quick_eval_compare(run_id: str, base_run_id: str, db: Session = Depends(get_db)):
+    """Compare this run (the candidate, e.g. the new model) against base_run_id (before)."""
+    base, candidate = _quick_eval_pair(db, run_id, base_run_id)
+    return build_comparison(db, base, candidate)
+
+
+@router.get("/quick-eval/{run_id}/compare/report", response_class=HTMLResponse)
+def quick_eval_compare_report(run_id: str, base_run_id: str, db: Session = Depends(get_db)):
+    base, candidate = _quick_eval_pair(db, run_id, base_run_id)
+    return HTMLResponse(render_comparison_report(db, base, candidate))
 
 
 # ── Admin stats (auth required) ───────────────────────────────────────────────

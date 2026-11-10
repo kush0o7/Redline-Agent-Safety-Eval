@@ -41,3 +41,7 @@ redis_data/
 
 # Docs build
 docs/_build/
+
+# Demo database and generated reports
+/.demo/
+/reports/

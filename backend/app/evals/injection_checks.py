@@ -62,6 +62,7 @@ def evaluate_attack(checks: list[dict], output_text: str, tool_calls: list[dict]
                 evidence.append(f"output starts with {check['value']!r}")
         else:
             raise ValueError(f"Unknown injection check type: {kind!r}")
+    evidence = list(dict.fromkeys(evidence))  # one line per distinct action, even if several checks match it
     return bool(evidence), evidence
 
 

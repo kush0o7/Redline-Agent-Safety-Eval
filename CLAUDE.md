@@ -32,7 +32,8 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 | `ADMIN_API_KEY` | `X-Admin-Key` auth; at least 16 chars; startup fails on weak defaults |
 | `REDLINE_ENV` | `production` (default; eval auth required) / `development` / `demo` (open evals, demo banner) |
 | `FIELD_ENCRYPTION_KEY` | Fernet key for stored agent keys (`make init` generates one) |
-| `LLM_PROVIDER` | `openai` / `anthropic` / `bedrock` / `ollama` / `fake` |
+| `LLM_PROVIDER` | `openai` / `anthropic` / `bedrock` / `ollama` / `groq` / `gemini` / `fake` |
+| `GROQ_API_KEY` / `GEMINI_API_KEY` | Free-tier provider + judge keys (demos/tests only, never customer data); judge keys are passed to LiteLLM explicitly |
 | `OPENAI_BASE_URL` | Point the OpenAI provider at any compatible endpoint |
 | `JUDGE_MODEL` | LiteLLM model string for the judge (default `gpt-4o-mini`) |
 | `AGENT_ENDPOINT_ALLOWLIST` | Private hosts/CIDRs that `agent_endpoint_url` may target (metadata IPs always blocked) |
@@ -41,7 +42,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 | `EVAL_RATE_LIMIT` | quick-eval requests per IP per 5 min (default 5) |
 | `REQUIRE_EVAL_AUTH` | Optional override of the auth default derived from `REDLINE_ENV` |
 | `DEV_FAKE_JUDGE` / `DEV_FAKE_PROVIDER` | Keyword judge / canned provider (tests only) |
-| `EVAL_PACING_SECONDS` | Sleep between testcases (default 12; 0 = off) |
+| `EVAL_PACING_SECONDS` | Sleep between testcases (default 12; 0 = off). Free-tier floors apply: groq ≥ 10 s, gemini ≥ 30 s (`runner.effective_pacing_seconds`) |
 | `JOB_TIMEOUT_SECONDS`, `MAX_QUEUED_JOBS` | Worker timeout (3600) / queue depth before 503 (20) |
 
 ## Running tests (no Docker needed)
@@ -49,7 +50,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 156 tests, no API keys required
+pytest tests/ -q   # 174 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
@@ -95,6 +96,13 @@ Out of scope for now: accounts/multi-tenancy, compliance PDF export, multi-turn 
 ## MCP server (Claude Code integration)
 
 See `mcp-server/README.md`. `quick_safety_eval` takes `testcase_count` (default 30) and `packs`.
+
+## Demo and reports
+
+- `make demo` (`scripts/demo.py`): offline, in-process SQLite + inline queue; `fake-safe` vs `fake-degraded` (simulated models in `llm/provider.py` that look prompts up in the bundled cases); `DEMO_BEFORE_MODEL`/`DEMO_AFTER_MODEL` for real models. Writes `reports/` (gitignored) and `.demo/redline_demo.db` (gitignored).
+- `make report RUN=<id> | COMPARE=<a>,<b> [DB=demo|<url>]` (`scripts/report.py`).
+- `evals/comparison.py::build_comparison` is the single source for compare data (API, HTML report, UI). `reports/html_report.py` renders escaped, script-free HTML.
+- Report endpoints: `/projects/{id}/runs/{run_id}/report`, `/projects/{id}/runs/compare/report` (registered before `/runs/{run_id}`), `/quick-eval/{run_id}/report`, `/quick-eval/{run_id}/compare[/report]?base_run_id=` (422 if the runs are in different projects).
 
 ## Architecture notes
 

@@ -35,3 +35,13 @@ def test_failures_show_how_each_case_was_decided():
     assert "r.decided_by" in js and "jr.evidence" in js and "jr.attack_goal" in js
     page = (UI / "methodology.html").read_text()
     assert "graded on actions, in code" in page and "2603.06594" in page
+
+
+def test_compare_view_shows_flipped_cases():
+    html = (UI / "index.html").read_text()
+    js = (UI / "app.js").read_text()
+    assert 'id="compareSection"' in html and 'id="rerunOf"' in html
+    assert "/compare?base_run_id=" in js and "/compare/report?base_run_id=" in js
+    for field in ("d.prompt", "d.base_answer", "d.candidate_answer", "d.candidate_decided_by", "d.evidence"):
+        assert field in js
+    assert "rerun_of: rerunOf" in js

@@ -21,6 +21,28 @@ from app.utils.time import now_iso
 _MAX_ATTEMPTS = 5
 
 
+# Minimum seconds between testcases on free tiers. Each testcase makes 1–5 model
+# calls (tool scenarios up to 4) plus 1 judge call. Floors assume the tightest
+# published free limits (Groq ~30 req/min and ~6K tokens/min on large models;
+# Gemini Flash ~10 req/min after the Dec 2025 quota cuts). See docs: free tiers.
+FREE_TIER_PACING_FLOOR = {"groq": 10.0, "gemini": 30.0}
+
+
+def effective_pacing_seconds() -> float:
+    """EVAL_PACING_SECONDS, raised to the free-tier floor when a free provider or judge is used."""
+    if settings.dev_fake_provider and settings.dev_fake_judge:
+        return 0.0
+    pacing = settings.eval_pacing_seconds if not settings.dev_fake_provider else 0.0
+    used = set()
+    if not settings.dev_fake_provider:
+        used.add(settings.llm_provider.lower())
+    if not settings.dev_fake_judge:
+        used.add((settings.judge_model or "").split("/", 1)[0].lower())
+    for name in used:
+        pacing = max(pacing, FREE_TIER_PACING_FLOOR.get(name, 0.0))
+    return pacing
+
+
 def _select_agent(mode: str) -> AgentUnderTest:
     if mode == "baseline":
         return BaselineAgent()
@@ -138,8 +160,9 @@ async def execute_run(
 
         # Pace between testcases to respect the judge model's rate limit (Groq TPM).
         # Always applied unless running with the fake provider (tests/CI).
-        if not settings.dev_fake_provider and settings.eval_pacing_seconds > 0:
-            await asyncio.sleep(settings.eval_pacing_seconds)
+        pacing = effective_pacing_seconds()
+        if pacing > 0:
+            await asyncio.sleep(pacing)
 
     summary = aggregate_metrics(results_payload)
     tier_eval = evaluate_tier(summary, tier_cfg)

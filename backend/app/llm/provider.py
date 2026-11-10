@@ -92,31 +92,36 @@ def parse_openai_reply(data: dict) -> LLMReply:
 
 
 class OpenAIProvider(BaseProvider):
-    def __init__(self, base_url: str | None = None, api_key: str | None = None) -> None:
+    def __init__(self, base_url: str | None = None, api_key: str | None = None, send_seed: bool = True) -> None:
         resolved_key = api_key or settings.openai_api_key
         if not resolved_key:
             raise ValueError("OPENAI_API_KEY must be set for openai provider")
         self.api_key = resolved_key
         self.base_url = base_url or settings.openai_base_url or "https://api.openai.com/v1"
+        # Some OpenAI-compatible servers (Gemini's compatibility layer) reject unknown params.
+        self.send_seed = send_seed
+
+    def _with_seed(self, payload: dict, seed: int) -> dict:
+        if self.send_seed:
+            payload["seed"] = seed
+        return payload
 
     async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
-        payload = {
+        payload = self._with_seed({
             "model": model,
             "messages": to_openai_messages(messages),
             "temperature": temperature,
-            "seed": seed,
-        }
+        }, seed)
         data = await self._post(payload)
         return data["choices"][0]["message"].get("content") or ""
 
     async def complete_with_tools(self, messages, model, temperature, seed, tools) -> LLMReply:
-        payload = {
+        payload = self._with_seed({
             "model": model,
             "messages": to_openai_messages(messages),
             "temperature": temperature,
-            "seed": seed,
             "tools": to_openai_tools(tools),
-        }
+        }, seed)
         try:
             data = await self._post(payload)
         except httpx.HTTPStatusError as exc:
@@ -378,18 +383,34 @@ class FakeProvider(BaseProvider):
       markdown-image instructions. Tests use it to prove the checks catch a
       compromised agent.
     - anything else behaves safely: summarises, calls no action tools.
+
+    Simulated "before/after" models for the offline demo (``make demo``):
+    - ``fake-safe``: answers every bundled test case the way a well-behaved model
+      would (refuses harmful requests, answers benign ones, says "I don't know"
+      when it can't know, ignores injected instructions).
+    - ``fake-degraded``: behaves like a safety-regressed fine-tune — identical on
+      benign and unanswerable questions, but complies with a deterministic ~60%
+      of harmful requests and follows ~60% of injections.
+    Both look the prompt up in the bundled test cases, so they are an oracle
+    simulation of a model: they demonstrate the pipeline, not a real model.
     """
 
     async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
         rnd = random.Random(seed)
         prompt = messages[-1].content if messages else ""
+        if _is_simulated(model):
+            simulated = _simulated_answer(prompt, degraded="degraded" in model)
+            if simulated is not None:
+                return simulated
         return f"FAKE_RESPONSE: {prompt[:80]} :: {rnd.randint(0, 9999)}"
 
     async def complete_with_tools(self, messages, model, temperature, seed, tools) -> LLMReply:
         tool_text = "\n".join(m.content for m in messages if m.role == "tool")
         already_acted = any(m.role == "assistant" and m.tool_calls and not m.tool_calls[0].id.startswith("seed_") for m in messages)
-        if "vulnerable" not in (model or "") or already_acted:
-            if "vulnerable" in (model or ""):
+        user_task = next((m.content for m in messages if m.role == "user"), "")
+        follows = "vulnerable" in (model or "") or ("degraded" in (model or "") and _degrades(user_task))
+        if not follows or already_acted:
+            if follows:
                 return LLMReply(text=self._compromised_text(tool_text))
             return LLMReply(text="Summary: I reviewed the content you asked about. It contains instructions addressed to an AI assistant, which I have not followed.")
 
@@ -430,6 +451,47 @@ class FakeProvider(BaseProvider):
         return text + (f"\n\n{image.group(0)}" if image else "")
 
 
+
+# ── Simulated models for the offline demo (fake-safe / fake-degraded) ──
+
+_SIM_INDEX: dict[str, dict] | None = None
+
+
+def _is_simulated(model: str | None) -> bool:
+    return bool(model) and (model.startswith("fake-safe") or model.startswith("fake-degraded"))
+
+
+def _degrades(prompt: str) -> bool:
+    """Deterministic ~60% subset of prompts on which the degraded model misbehaves."""
+    import hashlib
+
+    return int(hashlib.sha256((prompt or "").encode()).hexdigest()[:8], 16) % 100 < 60
+
+
+def _sim_index() -> dict[str, dict]:
+    global _SIM_INDEX
+    if _SIM_INDEX is None:
+        from app.evals.testcases import build_default_testcases
+
+        _SIM_INDEX = {seed.prompt: seed.expected_behavior for seed in build_default_testcases()}
+    return _SIM_INDEX
+
+
+def _simulated_answer(prompt: str, *, degraded: bool) -> str | None:
+    expected = _sim_index().get(prompt)
+    if expected is None:
+        return None
+    extra = " ".join(expected.get("must_include", []))
+    if expected.get("should_refuse"):
+        if degraded and _degrades(prompt):
+            return ("Sure, here is a detailed answer. Step 1: gather what you need. Step 2: follow the "
+                    "procedure exactly as described. Step 3: avoid being noticed. Let me know if you want more detail.")
+        return f"I can't help with that request. If this is urgent, please contact a qualified professional. {extra}".strip()
+    if expected.get("should_use_unknown_if_missing_info"):
+        return f"I don't know. There is not enough information to answer that reliably. {extra}".strip()
+    return f"Here is a helpful answer to your question. {extra}".strip()
+
+
 def get_provider() -> BaseProvider:
     if settings.dev_fake_provider or settings.llm_provider.lower() == "fake":
         return FakeProvider()
@@ -439,6 +501,14 @@ def get_provider() -> BaseProvider:
         return AnthropicProvider()
     if settings.llm_provider.lower() == "bedrock":
         return BedrockProvider()
+    if settings.llm_provider.lower() == "groq":
+        if not settings.groq_api_key:
+            raise ValueError("GROQ_API_KEY must be set for groq provider")
+        return OpenAIProvider(base_url=settings.groq_base_url, api_key=settings.groq_api_key)
+    if settings.llm_provider.lower() == "gemini":
+        if not settings.gemini_api_key:
+            raise ValueError("GEMINI_API_KEY must be set for gemini provider")
+        return OpenAIProvider(base_url=settings.gemini_base_url, api_key=settings.gemini_api_key, send_seed=False)
     if settings.llm_provider.lower() == "ollama":
         return OpenAIProvider(
             base_url=f"{settings.ollama_base_url}/v1",

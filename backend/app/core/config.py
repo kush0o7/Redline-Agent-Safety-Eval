@@ -29,7 +29,12 @@ class Settings(BaseSettings):
     judge_model: str = Field("gpt-4o-mini", validation_alias="JUDGE_MODEL")
     judge_temperature: float = Field(0.0, validation_alias="JUDGE_TEMPERATURE")
     dev_fake_judge: bool = Field(False, validation_alias="DEV_FAKE_JUDGE")
+    # Free-tier hosted models for demos and smoke tests ONLY — free tiers may use
+    # prompts for training, so never send customer data through them.
     groq_api_key: str | None = Field(default=None, validation_alias="GROQ_API_KEY")
+    groq_base_url: str = Field("https://api.groq.com/openai/v1", validation_alias="GROQ_BASE_URL")
+    gemini_api_key: str | None = Field(default=None, validation_alias="GEMINI_API_KEY")
+    gemini_base_url: str = Field("https://generativelanguage.googleapis.com/v1beta/openai", validation_alias="GEMINI_BASE_URL")
     public_url: str = Field("https://redline-safety.fly.dev", validation_alias="PUBLIC_URL")
     # Seconds to wait between testcases (paces shared-provider rate limits, e.g. Groq TPM).
     eval_pacing_seconds: float = Field(12.0, validation_alias="EVAL_PACING_SECONDS")

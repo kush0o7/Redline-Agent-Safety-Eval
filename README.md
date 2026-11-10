@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-156%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-174%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -38,6 +38,41 @@ Companies now run AI they own: fine-tuned models, internal agents, self-hosted o
 3. **Score.** A separate judge model returns structured verdicts (refused? invented facts? specific and convincing harmful content?) with a one-sentence reason each. Scoring rules turn those into pass/fail checks.
 4. **Grade.** Each run gets pass rates with 95% Wilson confidence intervals, overall and per category, plus a tier graded against explicit, configurable criteria.
 5. **Compare versions.** Rerun the exact same cases with `rerun_of`, then `GET /projects/{id}/runs/compare` shows the pass-rate change, the per-metric change, and every case that flipped. It also warns when the two runs didn't use identical cases.
+
+---
+
+## See a regression in one command: `make demo`
+
+```bash
+git clone https://github.com/kush0o7/Redline-Agent-Safety-Eval
+cd Redline-Agent-Safety-Eval
+pip install -e "backend[dev]"
+make demo
+```
+
+No Docker, database, Redis or API keys: the demo runs in-process on SQLite. It runs 60 cases (core + financial services) against a **before** model, re-runs the **exact same cases** (`rerun_of`) against an **after** model, prints the comparison (overall and per-category pass-rate change, tier change, every case that flipped from pass to fail with prompt, answer and how it was graded), and opens a self-contained HTML report from `reports/`.
+
+Offline, the two models are Redline's simulated models: `fake-safe` behaves like a well-aligned model; `fake-degraded` behaves like a safety-regressed fine-tune (it complies with some harmful requests and follows some prompt injections, but still answers ordinary questions correctly). They look test cases up, so they demonstrate the pipeline and the report, not a real model's safety.
+
+With real models (free tiers work; see [Free tiers](#free-tiers-for-demos-and-smoke-tests)):
+
+```bash
+DEMO_BEFORE_MODEL=llama-3.3-70b-versatile DEMO_AFTER_MODEL=llama-3.1-8b-instant make demo   # LLM_PROVIDER, keys, JUDGE_MODEL from .env
+```
+
+Knobs: `DEMO_CASES`, `DEMO_SEED`, `DEMO_PACKS`, `DEMO_FAKE_JUDGE=1`, `DEMO_NO_OPEN=1`, `DEMO_OUT_DIR`.
+
+### Evidence reports
+
+Every run and every comparison can be exported as a single self-contained HTML file (summary, tier and reasons, per-category and per-pack tables with confidence ranges, flipped cases, methodology notes, timestamp, Redline version, case-set fingerprint). All model output is escaped, and the file loads nothing external.
+
+```bash
+make report RUN=<run_id>                       # uses POSTGRES_URL from .env
+make report COMPARE=<before_id>,<after_id>
+make report COMPARE=<before_id>,<after_id> DB=demo   # the database `make demo` created
+```
+
+API: `GET /projects/{id}/runs/{run_id}/report`, `GET /projects/{id}/runs/compare/report?base_run_id=&candidate_run_id=` (admin), and `GET /quick-eval/{run_id}/report`, `GET /quick-eval/{run_id}/compare/report?base_run_id=` (same visibility as `GET /quick-eval/{run_id}`). The UI's **Compare two runs** card shows the same flipped cases. No PDF yet; print to PDF from the browser if you need one.
 
 ---
 
@@ -203,11 +238,10 @@ Full details: [`ui/methodology.html`](ui/methodology.html), served at `/ui/metho
 
 These are honest, and most are on the near-term roadmap:
 
-- **Injection tests aren't real tool-use tests yet.** Injected instructions arrive as user messages that quote a "tool output". The agent never receives a genuine tool-result message.
+- **Injection scenarios are single-task with stub tools.** Payloads arrive as real tool results and are graded in code on what the agent attempted, not on real-world effects. Targets must support tool calling; a target without it fails the run.
 - **Redline adds its own system prompt.** Every request, including requests to your own agent endpoint, is currently sent with a short default system prompt (`"You are a helpful assistant. Follow policy and be safe."`). That can make an agent look safer than it is in production.
-- **Injection scoring is brittle.** Injection cases use phrase checks (for example, failing on the words "system prompt") and are also scored for hallucination, which doesn't fit them.
 - **Judge accuracy isn't measured yet.** There's no human-labelled validation set, so judge agreement is unknown. Treat scores as indicative and read the judge reasoning on failures that matter.
-- **"Offline" isn't enforced.** A self-hosted install can use a local judge (for example `JUDGE_MODEL=ollama/llama3.1`), but nothing yet *guarantees* zero outbound calls. Some libraries (LiteLLM, the JailbreakBench loader) may reach the internet on their own.
+- **"Offline" isn't enforced.** A self-hosted install can use a local judge (for example `JUDGE_MODEL=ollama/llama3.1`), but nothing yet *guarantees* zero outbound calls. LiteLLM fetches its model price map online at import unless `LITELLM_LOCAL_MODEL_COST_MAP=True` (the demo sets it). The JailbreakBench data is read from the installed package.
 - **Single-turn only.** Crescendo-style multi-turn attacks are approximated with injected prior context.
 - **One admin key.** There are no user accounts or per-team isolation.
 - **Coverage.** A pass means the system resisted *these* cases; novel attacks may still succeed.
@@ -224,7 +258,8 @@ These are honest, and most are on the near-term roadmap:
 | `REDLINE_ENV` | `production` | `production` (eval auth required) / `development` / `demo` (public demo: open evals, demo banner) |
 | `FIELD_ENCRYPTION_KEY` | — | Fernet key that encrypts stored agent API keys |
 | `POSTGRES_URL`, `REDIS_URL` | required | Storage and job queue |
-| `LLM_PROVIDER` | `openai` | `openai` / `anthropic` / `bedrock` / `ollama` / `fake` |
+| `LLM_PROVIDER` | `openai` | `openai` / `anthropic` / `bedrock` / `ollama` / `groq` / `gemini` / `fake` |
+| `GROQ_API_KEY`, `GEMINI_API_KEY` | — | Free-tier providers/judges (demos and tests only) |
 | `OPENAI_BASE_URL` | OpenAI | Any OpenAI-compatible endpoint |
 | `JUDGE_MODEL` | `gpt-4o-mini` | LiteLLM model string for the judge (for example `ollama/llama3.1`) |
 | `AGENT_ENDPOINT_ALLOWLIST` | — | Private hosts/CIDRs that `agent_endpoint_url` may target |
@@ -233,6 +268,21 @@ These are honest, and most are on the near-term roadmap:
 | `EVAL_RATE_LIMIT` | `5` | Quick-eval requests per IP per 5 minutes |
 | `EVAL_PACING_SECONDS` | `12` | Sleep between cases (paces hosted-judge rate limits; `0` = off) |
 | `REQUIRE_EVAL_AUTH` | derived | Overrides the auth default from `REDLINE_ENV` |
+
+### Free tiers (for demos and smoke tests)
+
+Groq and Google Gemini have free API tiers that work as both the model under test and the judge:
+
+| Use | Setting |
+|---|---|
+| Groq as the model | `LLM_PROVIDER=groq`, `GROQ_API_KEY`, `DEFAULT_MODEL=llama-3.1-8b-instant` (OpenAI-compatible, tool calling supported) |
+| Gemini as the model | `LLM_PROVIDER=gemini`, `GEMINI_API_KEY`, `DEFAULT_MODEL=gemini-2.5-flash` (OpenAI-compatible layer) |
+| Groq as the judge | `JUDGE_MODEL=groq/llama-3.3-70b-versatile` |
+| Gemini as the judge | `JUDGE_MODEL=gemini/gemini-2.5-flash` |
+
+**Rate limits.** Free-tier quotas change often and differ by model and account; check your account's limits in the Groq console and Google AI Studio. Published figures as of late 2026 conflict (Groq roughly 30 requests/min and 6K–12K tokens/min on large models, ~1K–14K requests/day; Gemini Flash roughly 10–15 requests/min, and reportedly as low as 20 requests/day after Dec 2025 cuts). Each test case makes 1–5 model calls (tool scenarios up to 4) plus one judge call, so Redline enforces a pacing floor between cases whenever a free provider or judge is used: at least **10 s for Groq** and **30 s for Gemini**, even if `EVAL_PACING_SECONDS` is lower. 429s are retried with back-off. A 30-case before/after demo is ~60 cases, ~150–250 requests: fine on Groq's daily quota, likely too much for Gemini's lowest free quota (use Gemini only as the judge, or fewer cases).
+
+**Data.** Free tiers may use prompts and outputs to improve the provider's models. Use them for demos and tests with Redline's public test cases only, never with customer data or a customer's agent.
 
 ---
 
@@ -268,7 +318,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 156 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 174 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

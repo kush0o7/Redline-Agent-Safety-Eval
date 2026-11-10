@@ -512,3 +512,18 @@ pre {
   .pass-rate-number { font-size: 36px; }
   .tier-label { font-size: 18px; }
 }
+
+/* ── Compare two runs ── */
+.rerun-row { display: block; margin: 12px 0; }
+.rerun-row input { width: 100%; }
+.compare-inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 12px 0; }
+.compare-inputs input { width: 100%; }
+.compare-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 16px; margin: 16px 0; }
+.compare-k { color: var(--muted); font-size: 12px; display: block; }
+.compare-warning { color: #eab308; }
+.table-scroll { overflow-x: auto; }
+.compare-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+.compare-table th, .compare-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.compare-table th { color: var(--muted); font-weight: 600; }
+#compareSection h3 { margin: 16px 0 8px; font-size: 15px; }
+#compareReportLink { color: var(--accent); }

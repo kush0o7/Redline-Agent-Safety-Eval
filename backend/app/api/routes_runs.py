@@ -6,7 +6,7 @@ import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,9 @@ from app.core.config import settings
 from app.core.security import constant_time_key_match, encrypt_field, validate_agent_url, verify_admin_key
 from app.db.models import Project, Run, RunResult, Testcase, Trace
 from app.db.session import get_db
-from app.evals.case_sets import build_case_set, case_set_for_run, compare_case_sets
+from app.evals.case_sets import build_case_set
+from app.evals.comparison import build_comparison
+from app.reports.html_report import render_comparison_report, render_run_report
 from app.utils.time import now_iso
 
 router = APIRouter(dependencies=[Depends(verify_admin_key)])
@@ -71,86 +73,35 @@ async def create_run(project_id: str, payload: RunCreate, request: Request, db: 
     return {"run_id": str(run.id), "status": run.status, "case_set_hash": set_hash}
 
 
-@router.get("/projects/{project_id}/runs/compare")
-def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, db: Session = Depends(get_db)):
+def _run_pair(db: Session, project_id: str, base_run_id: str, candidate_run_id: str) -> tuple[Run, Run]:
     base_run = db.get(Run, base_run_id)
     candidate_run = db.get(Run, candidate_run_id)
     if not base_run or str(base_run.project_id) != project_id:
         raise HTTPException(status_code=404, detail="Base run not found")
     if not candidate_run or str(candidate_run.project_id) != project_id:
         raise HTTPException(status_code=404, detail="Candidate run not found")
+    return base_run, candidate_run
 
-    case_set = compare_case_sets(case_set_for_run(db, base_run), case_set_for_run(db, candidate_run))
 
-    base_rows = db.query(RunResult).filter(RunResult.run_id == base_run.id).all()
-    candidate_rows = db.query(RunResult).filter(RunResult.run_id == candidate_run.id).all()
+@router.get("/projects/{project_id}/runs/compare")
+def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, db: Session = Depends(get_db)):
+    base_run, candidate_run = _run_pair(db, project_id, base_run_id, candidate_run_id)
+    return build_comparison(db, base_run, candidate_run)
 
-    base_by_testcase = {str(row.testcase_id): row for row in base_rows}
-    candidate_by_testcase = {str(row.testcase_id): row for row in candidate_rows}
-    common_testcase_ids = sorted(set(base_by_testcase).intersection(candidate_by_testcase))
-    if not common_testcase_ids:
-        return {
-            "base_run_id": str(base_run.id),
-            "candidate_run_id": str(candidate_run.id),
-            "base_total": len(base_rows),
-            "candidate_total": len(candidate_rows),
-            "common_total": 0,
-            "pass_rate_delta": None,
-            "metrics": {},
-            "changed_testcases": [],
-            "case_set": case_set,
-        }
 
-    def _rate(values: list) -> float | None:
-        valid = [v for v in values if v is not None]
-        if not valid:
-            return None
-        return sum(1 for v in valid if v) / len(valid)
+# Registered before /runs/{run_id}/... so "compare" isn't parsed as a run id.
+@router.get("/projects/{project_id}/runs/compare/report", response_class=HTMLResponse)
+def compare_report(project_id: str, base_run_id: str, candidate_run_id: str, db: Session = Depends(get_db)):
+    base_run, candidate_run = _run_pair(db, project_id, base_run_id, candidate_run_id)
+    return HTMLResponse(render_comparison_report(db, base_run, candidate_run))
 
-    base_passes = [base_by_testcase[tc_id].passed for tc_id in common_testcase_ids]
-    candidate_passes = [candidate_by_testcase[tc_id].passed for tc_id in common_testcase_ids]
-    base_pass_rate = _rate(base_passes)
-    candidate_pass_rate = _rate(candidate_passes)
 
-    metric_names = sorted({
-        m
-        for tc_id in common_testcase_ids
-        for m in (base_by_testcase[tc_id].scores.keys() | candidate_by_testcase[tc_id].scores.keys())
-    })
-
-    metrics = {}
-    for metric in metric_names:
-        base_values = [base_by_testcase[tc_id].scores.get(metric) for tc_id in common_testcase_ids]
-        candidate_values = [candidate_by_testcase[tc_id].scores.get(metric) for tc_id in common_testcase_ids]
-        base_rate = _rate(base_values)
-        candidate_rate = _rate(candidate_values)
-        delta = None if base_rate is None or candidate_rate is None else candidate_rate - base_rate
-        metrics[metric] = {"base_pass_rate": base_rate, "candidate_pass_rate": candidate_rate, "delta": delta}
-
-    changed_testcases = [
-        {
-            "testcase_id": tc_id,
-            "base_passed": bool(base_by_testcase[tc_id].passed),
-            "candidate_passed": bool(candidate_by_testcase[tc_id].passed),
-        }
-        for tc_id in common_testcase_ids
-        if bool(base_by_testcase[tc_id].passed) != bool(candidate_by_testcase[tc_id].passed)
-    ]
-
-    pass_rate_delta = None if base_pass_rate is None or candidate_pass_rate is None else candidate_pass_rate - base_pass_rate
-    return {
-        "base_run_id": str(base_run.id),
-        "candidate_run_id": str(candidate_run.id),
-        "base_total": len(base_rows),
-        "candidate_total": len(candidate_rows),
-        "common_total": len(common_testcase_ids),
-        "base_pass_rate": base_pass_rate,
-        "candidate_pass_rate": candidate_pass_rate,
-        "pass_rate_delta": pass_rate_delta,
-        "metrics": metrics,
-        "changed_testcases": changed_testcases,
-        "case_set": case_set,
-    }
+@router.get("/projects/{project_id}/runs/{run_id}/report", response_class=HTMLResponse)
+def run_report(project_id: str, run_id: str, db: Session = Depends(get_db)):
+    run = db.get(Run, run_id)
+    if not run or str(run.project_id) != project_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return HTMLResponse(render_run_report(db, run))
 
 
 @router.get("/projects/{project_id}/runs/{run_id}")
