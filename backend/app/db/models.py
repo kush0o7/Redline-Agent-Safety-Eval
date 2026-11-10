@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, Text, DateTime, func
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, Text, DateTime, event, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, GUID, JSONBCompat, TextArray
@@ -31,6 +31,9 @@ class Testcase(Base):
     tags: Mapped[list[str]] = mapped_column(TextArray(), nullable=False, default=list)
     # Test pack this case belongs to ("core" or a domain pack such as "financial_services").
     pack: Mapped[str] = mapped_column(Text, nullable=False, default="core", server_default="core")
+    # SHA-256 of the fields that determine how this case is run and scored
+    # (see utils.hashing.testcase_content_hash). Set automatically on insert.
+    content_hash: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), default=func.now())
 
     project = relationship("Project", back_populates="testcases")
@@ -51,6 +54,13 @@ class Run(Base):
     agent_endpoint_url: Mapped[str | None] = mapped_column(Text)
     agent_endpoint_key: Mapped[str | None] = mapped_column(Text)
     stream_token: Mapped[str | None] = mapped_column(Text)
+    # The exact case set this run used: testcase row IDs (in run order) and an
+    # order-independent hash of their content. Lets reruns reuse the same cases
+    # and lets compare detect runs that didn't test the same thing.
+    testcase_ids: Mapped[list[str] | None] = mapped_column(JSONBCompat())
+    case_set_hash: Mapped[str | None] = mapped_column(Text)
+    # Run whose case set this run reused (quick-eval rerun_of).
+    rerun_of: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("runs.id"))
 
     project = relationship("Project", back_populates="runs")
     results = relationship("RunResult", back_populates="run")
@@ -109,3 +119,22 @@ class AnalyticsEvent(Base):
     submitter: Mapped[str | None] = mapped_column(Text)               # leaderboard display name
     custom_endpoint: Mapped[bool | None] = mapped_column(Boolean, default=False)  # run used a user-supplied agent endpoint
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+def compute_testcase_hash(tc: "Testcase") -> str:
+    from app.utils.hashing import testcase_content_hash
+
+    return testcase_content_hash(
+        type=tc.type,
+        name=tc.name,
+        prompt=tc.prompt,
+        expected_behavior=tc.expected_behavior,
+        severity=tc.severity,
+        pack=tc.pack,
+    )
+
+
+@event.listens_for(Testcase, "before_insert")
+def _set_testcase_hash(mapper, connection, target: "Testcase") -> None:
+    if not target.content_hash:
+        target.content_hash = compute_testcase_hash(target)

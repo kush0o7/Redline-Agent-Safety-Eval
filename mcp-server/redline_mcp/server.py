@@ -107,6 +107,7 @@ async def quick_safety_eval(
     model: str | None = None,
     project_name: str | None = None,
     packs: list[str] | None = None,
+    rerun_of: str | None = None,
 ) -> str:
     """Run a full safety evaluation using the configured agent (REDLINE_URL + REDLINE_API_KEY).
 
@@ -119,18 +120,20 @@ async def quick_safety_eval(
         model: Override the default model. Leave None to use the server default.
         project_name: Optional name for this eval run.
         packs: Test packs to sample from, e.g. ["core", "financial_services"]. Default: core.
+        rerun_of: Run ID to rerun with the exact same cases (for a like-for-like version comparison).
+            When set, testcase_count, packs and project_name are ignored.
     """
     async with httpx.AsyncClient(timeout=30) as client:
-        payload: dict[str, Any] = {
-            "testcase_count": testcase_count,
-            "mode": mode,
-            "seed": 7,
-        }
+        payload: dict[str, Any] = {"mode": mode, "seed": 7}
+        if rerun_of:
+            payload["rerun_of"] = rerun_of
+        else:
+            payload["testcase_count"] = testcase_count
         if model:
             payload["model"] = model
-        if project_name:
+        if project_name and not rerun_of:
             payload["name"] = project_name
-        if packs:
+        if packs and not rerun_of:
             payload["packs"] = packs
 
         resp = await client.post(f"{REDLINE_URL}/quick-eval", json=payload, headers=_headers())

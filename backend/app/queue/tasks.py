@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from app.db import session as db_session
 from app.db.models import Run, Testcase
+from app.evals.case_sets import run_testcase_ids
 from app.evals.runner import execute_run
 
 logger = logging.getLogger("redline.tasks")
@@ -33,9 +34,7 @@ async def run_eval_task(ctx: dict, run_id: str, submitter: str | None = None) ->
         run.started_at = datetime.now(timezone.utc)
         db.commit()
 
-        testcase_ids: list[str] = []
-        if isinstance(run.summary, dict):
-            testcase_ids = run.summary.get("testcase_ids", [])
+        testcase_ids = run_testcase_ids(run)
 
         testcases = (
             db.query(Testcase)

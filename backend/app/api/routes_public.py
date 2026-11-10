@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.security import constant_time_key_match, decrypt_field, encrypt_field, validate_agent_url, verify_admin_key
 from app.db.models import AnalyticsEvent, InviteToken, Project, Run, RunResult, Testcase
 from app.db.session import get_db
+from app.evals.case_sets import build_case_set, case_set_for_run
 from app.evals.testcases import TestcaseSeed, build_default_testcases
 from app.core.config import settings
 from app.utils.tiers import load_tier_config, score_tier, tier_category, tier_style
@@ -119,6 +120,11 @@ class QuickEvalCreate(BaseModel):
     agent_endpoint_url: str | None = Field(default=None, max_length=512, description="OpenAI-compatible chat endpoint to test")
     agent_endpoint_key: str | None = Field(default=None, max_length=256, description="API key for the agent endpoint")
     submitter: str | None = Field(default=None, max_length=60, description="Display name for the leaderboard")
+    rerun_of: uuid.UUID | None = Field(
+        default=None,
+        description="Rerun the exact case set of this earlier run (same project, same testcase rows) "
+        "so the two runs can be compared like-for-like. Cannot be combined with testcase_count, packs or name.",
+    )
 
 
 def _select_testcase_seeds(seeds: list[TestcaseSeed], count: int, seed: int) -> list[TestcaseSeed]:
@@ -173,6 +179,73 @@ def _available_packs(seeds: list[TestcaseSeed]) -> set[str]:
     return {s.pack for s in seeds}
 
 
+def _sample_new_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project, list[Testcase]]:
+    """New project + a fresh seeded, stratified sample of cases."""
+    # Validate before creating anything, so a rejected request leaves no orphan project.
+    max_cases = 50 if settings.is_demo else settings.max_testcases_per_run
+    if payload.testcase_count > max_cases:
+        raise HTTPException(status_code=422, detail=f"testcase_count may be at most {max_cases} on this deployment")
+    all_seeds = build_default_testcases()
+    unknown = set(payload.packs) - _available_packs(all_seeds)
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown test pack(s): {', '.join(sorted(unknown))}")
+    pool = [s for s in all_seeds if s.pack in set(payload.packs)]
+    seeds = _select_testcase_seeds(pool, payload.testcase_count, payload.seed)
+    if not seeds:
+        raise HTTPException(status_code=500, detail="No test cases available to seed")
+
+    name = payload.name or f"quick-eval-{uuid.uuid4().hex[:8]}"
+    project = Project(name=name)
+    db.add(project)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Project name already exists")
+    db.refresh(project)
+
+    testcases = [
+        Testcase(
+            project_id=project.id,
+            type=s.type,
+            name=s.name,
+            prompt=s.prompt,
+            expected_behavior=s.expected_behavior,
+            severity=s.severity,
+            tags=s.tags,
+            pack=s.pack,
+        )
+        for s in seeds
+    ]
+    db.add_all(testcases)
+    db.commit()
+    return project, testcases
+
+
+def _rerun_case_set(payload: QuickEvalCreate, db: Session) -> tuple[Project, list[Testcase]]:
+    """The original run's project and its exact testcase rows, verified unchanged."""
+    conflicting = sorted({"testcase_count", "packs", "name"} & payload.model_fields_set)
+    if conflicting:
+        raise HTTPException(
+            status_code=422,
+            detail=f"rerun_of reuses the original run's cases; remove: {', '.join(conflicting)}",
+        )
+    original = db.get(Run, payload.rerun_of)
+    if not original:
+        raise HTTPException(status_code=404, detail="rerun_of run not found")
+    case_set = case_set_for_run(db, original)
+    if not case_set.testcase_ids:
+        raise HTTPException(status_code=409, detail="rerun_of run has no recorded case set")
+    if not case_set.intact:
+        raise HTTPException(
+            status_code=409,
+            detail="rerun_of run's cases are missing or have changed since it ran; it cannot be rerun exactly",
+        )
+    rows = db.query(Testcase).filter(Testcase.id.in_(case_set.testcase_ids)).all()
+    by_id = {str(tc.id): tc for tc in rows}
+    return original.project, [by_id[i] for i in case_set.testcase_ids]
+
+
 @router.post("/quick-eval", dependencies=[Depends(_verify_eval_access)])
 async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = Depends(get_db)):
     """Create a project, seed test cases, and start a run in one call.
@@ -194,45 +267,11 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
     if pending > settings.max_queued_jobs:
         raise HTTPException(status_code=503, detail="Server is busy — too many evals queued. Try again shortly.")
 
-    name = payload.name or f"quick-eval-{uuid.uuid4().hex[:8]}"
-    project = Project(name=name)
-    db.add(project)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Project name already exists")
-    db.refresh(project)
-
-    max_cases = 50 if settings.is_demo else settings.max_testcases_per_run
-    if payload.testcase_count > max_cases:
-        raise HTTPException(status_code=422, detail=f"testcase_count may be at most {max_cases} on this deployment")
-
-    all_seeds = build_default_testcases()
-    unknown = set(payload.packs) - _available_packs(all_seeds)
-    if unknown:
-        raise HTTPException(status_code=422, detail=f"Unknown test pack(s): {', '.join(sorted(unknown))}")
-    pool = [s for s in all_seeds if s.pack in set(payload.packs)]
-    seeds = _select_testcase_seeds(pool, payload.testcase_count, payload.seed)
-    if not seeds:
-        raise HTTPException(status_code=500, detail="No test cases available to seed")
-
-    testcases = [
-        Testcase(
-            project_id=project.id,
-            type=s.type,
-            name=s.name,
-            prompt=s.prompt,
-            expected_behavior=s.expected_behavior,
-            severity=s.severity,
-            tags=s.tags,
-            pack=s.pack,
-        )
-        for s in seeds
-    ]
-    db.add_all(testcases)
-    db.commit()
-    testcase_ids = [str(tc.id) for tc in testcases]
+    if payload.rerun_of is not None:
+        project, testcases = _rerun_case_set(payload, db)
+    else:
+        project, testcases = _sample_new_case_set(payload, db)
+    testcase_ids, set_hash = build_case_set(testcases)
 
     # Generate a per-run stream token so the admin key never appears in any URL
     stream_token = secrets.token_urlsafe(24)
@@ -244,6 +283,9 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         seed=payload.seed,
         status="queued",
         summary={"testcase_ids": testcase_ids},
+        testcase_ids=testcase_ids,
+        case_set_hash=set_hash,
+        rerun_of=payload.rerun_of,
         agent_endpoint_url=payload.agent_endpoint_url,
         agent_endpoint_key=encrypt_field(payload.agent_endpoint_key),
         stream_token=stream_token,
@@ -261,6 +303,8 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
         "project_id": project_id,
         "status": "queued",
         "testcase_count": len(testcase_ids),
+        "case_set_hash": set_hash,
+        "rerun_of": str(payload.rerun_of) if payload.rerun_of else None,
         "results_url": f"/quick-eval/{run_id}",
         "stream_url": f"/projects/{project_id}/runs/{run_id}/stream?token={stream_token}",
     }
@@ -280,6 +324,8 @@ def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
         "mode": run.mode,
         "model": run.llm_model,
         "summary": run.summary,
+        "case_set_hash": run.case_set_hash,
+        "rerun_of": str(run.rerun_of) if run.rerun_of else None,
     }
 
     if run.status == "completed":

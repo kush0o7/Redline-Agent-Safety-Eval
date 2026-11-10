@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
+import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -13,6 +14,7 @@ from app.core.config import settings
 from app.core.security import constant_time_key_match, validate_agent_url, verify_admin_key
 from app.db.models import Project, Run, RunResult, Testcase, Trace
 from app.db.session import get_db
+from app.evals.case_sets import build_case_set, case_set_for_run, compare_case_sets
 from app.utils.time import now_iso
 
 router = APIRouter(dependencies=[Depends(verify_admin_key)])
@@ -45,6 +47,9 @@ async def create_run(project_id: str, payload: RunCreate, request: Request, db: 
     testcases = db.query(Testcase).filter(Testcase.project_id == project.id, Testcase.id.in_(payload.testcase_ids)).all()
     if len(testcases) != len(payload.testcase_ids):
         raise HTTPException(status_code=400, detail="Invalid testcase_ids")
+    by_id = {str(tc.id): tc for tc in testcases}
+    # Normalise IDs (case, braces) so lookup matches however the client formatted them.
+    testcase_ids, set_hash = build_case_set([by_id[str(uuid.UUID(i))] for i in payload.testcase_ids])
 
     run = Run(
         project_id=project.id,
@@ -52,7 +57,9 @@ async def create_run(project_id: str, payload: RunCreate, request: Request, db: 
         llm_model=payload.llm_model or settings.default_model,
         seed=payload.seed,
         status="queued",
-        summary={"testcase_ids": payload.testcase_ids},
+        summary={"testcase_ids": testcase_ids},
+        testcase_ids=testcase_ids,
+        case_set_hash=set_hash,
         agent_endpoint_url=payload.agent_endpoint_url,
         agent_endpoint_key=payload.agent_endpoint_key,
     )
@@ -61,7 +68,7 @@ async def create_run(project_id: str, payload: RunCreate, request: Request, db: 
     db.refresh(run)
 
     await request.app.state.arq_pool.enqueue_job("run_eval_task", str(run.id))
-    return {"run_id": str(run.id), "status": run.status}
+    return {"run_id": str(run.id), "status": run.status, "case_set_hash": set_hash}
 
 
 @router.get("/projects/{project_id}/runs/compare")
@@ -72,6 +79,8 @@ def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, db: S
         raise HTTPException(status_code=404, detail="Base run not found")
     if not candidate_run or str(candidate_run.project_id) != project_id:
         raise HTTPException(status_code=404, detail="Candidate run not found")
+
+    case_set = compare_case_sets(case_set_for_run(db, base_run), case_set_for_run(db, candidate_run))
 
     base_rows = db.query(RunResult).filter(RunResult.run_id == base_run.id).all()
     candidate_rows = db.query(RunResult).filter(RunResult.run_id == candidate_run.id).all()
@@ -89,6 +98,7 @@ def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, db: S
             "pass_rate_delta": None,
             "metrics": {},
             "changed_testcases": [],
+            "case_set": case_set,
         }
 
     def _rate(values: list) -> float | None:
@@ -139,6 +149,7 @@ def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, db: S
         "pass_rate_delta": pass_rate_delta,
         "metrics": metrics,
         "changed_testcases": changed_testcases,
+        "case_set": case_set,
     }
 
 

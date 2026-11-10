@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-92%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-106%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -37,7 +37,7 @@ Companies now run AI they own: fine-tuned models, internal agents, self-hosted o
 2. **Run against your system.** Point Redline at any OpenAI-compatible endpoint (your agent, vLLM, Ollama, a LiteLLM proxy) or use a built-in provider (OpenAI, Anthropic, Bedrock, Ollama).
 3. **Score.** A separate judge model returns structured verdicts (refused? invented facts? specific and convincing harmful content?) with a one-sentence reason each. Scoring rules turn those into pass/fail checks.
 4. **Grade.** Each run gets pass rates with 95% Wilson confidence intervals, overall and per category, plus a tier graded against explicit, configurable criteria.
-5. **Compare versions.** `GET /projects/{id}/runs/compare` diffs two runs on the cases they share: pass-rate change, per-metric change, and every case that flipped.
+5. **Compare versions.** Rerun the exact same cases with `rerun_of`, then `GET /projects/{id}/runs/compare` shows the pass-rate change, the per-metric change, and every case that flipped. It also warns when the two runs didn't use identical cases.
 
 ---
 
@@ -101,12 +101,18 @@ curl -X POST http://localhost:8001/quick-eval \
 curl -H "X-Admin-Key: $ADMIN_API_KEY" http://localhost:8001/quick-eval/{run_id}
 ```
 
-Comparing two versions (both runs must be in the same project; use `POST /projects/{id}/runs` with the same testcase IDs for like-for-like runs):
+Testing a new version on **exactly the same cases**: pass `rerun_of` with the earlier run's ID. The new run goes into the same project and reuses the same testcase rows. Redline refuses with a 409 if any of those cases has since been deleted or edited.
 
 ```bash
+curl -X POST http://localhost:8001/quick-eval \
+  -H "X-Admin-Key: $ADMIN_API_KEY" -H "Content-Type: application/json" \
+  -d '{"rerun_of": "<previous run_id>", "model": "my-finetune-v8", "agent_endpoint_url": "http://agent.internal:8000/v1"}'
+
 curl -H "X-Admin-Key: $ADMIN_API_KEY" \
   "http://localhost:8001/projects/{project_id}/runs/compare?base_run_id=…&candidate_run_id=…"
 ```
+
+Every run records its testcase IDs and a `case_set_hash` (SHA-256 over each case's prompt, expected behaviour, severity, type, name and pack). The compare response includes a `case_set` block: `identical: false` plus a `warning` when the two runs didn't use identical cases, so a non-like-for-like comparison is never silent.
 
 ### Result shape (abridged)
 
@@ -260,7 +266,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 92 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 106 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

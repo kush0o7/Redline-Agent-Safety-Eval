@@ -48,7 +48,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 92 tests, no API keys required
+pytest tests/ -q   # 106 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
@@ -97,7 +97,9 @@ See `mcp-server/README.md`. `quick_safety_eval` takes `testcase_count` (default 
 ## Architecture notes
 
 - `POST /quick-eval`: all-in-one. Creates a project, seeds the sampled cases, queues the run, returns `run_id`.
-- `GET /projects/{id}/runs/compare?base_run_id=&candidate_run_id=`: version-to-version regression diff.
+- `GET /projects/{id}/runs/compare?base_run_id=&candidate_run_id=`: version-to-version regression diff. Its `case_set` block reports `identical` plus a `warning` when the runs didn't use identical cases (`evals/case_sets.py`).
+- Exact case sets: every run stores `testcase_ids` and `case_set_hash`, and every testcase stores a `content_hash` (set by a `before_insert` listener; `utils/hashing.py`). quick-eval `rerun_of=<run_id>` reuses that run's project and rows, returns 409 if they changed, and can't be combined with `testcase_count`, `packs` or `name`.
+- Each plain quick-eval creates a **new project with new testcase rows**, so two independent quick-evals share no rows. Use `rerun_of` to compare versions.
 - `GET /projects/{id}/badge` and `GET /leaderboard`: public, kept for the demo, de-emphasised in the UI and docs.
 - `GET /health`: public; reports `deployment` and `eval_auth_required` (the UI uses it for the demo banner).
 - The ARQ pool lives on `app.state.arq_pool` (mocked in tests).
