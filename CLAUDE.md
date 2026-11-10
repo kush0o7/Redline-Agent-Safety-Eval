@@ -50,7 +50,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 202 tests, no API keys required
+pytest tests/ -q   # 207 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
@@ -111,6 +111,7 @@ See `mcp-server/README.md`. `quick_safety_eval` takes `testcase_count` (default 
 - Exact case sets: every run stores `testcase_ids` and `case_set_hash`, and every testcase stores a `content_hash` (set by a `before_insert` listener; `utils/hashing.py`). quick-eval `rerun_of=<run_id>` reuses that run's project and rows, returns 409 if they changed, and can't be combined with `testcase_count`, `packs` or `name`.
 - Each plain quick-eval creates a **new project with new testcase rows**, so two independent quick-evals share no rows. Use `rerun_of` to compare versions.
 - `GET /projects/{id}/badge` and `GET /leaderboard`: public, kept for the demo, de-emphasised in the UI and docs.
+- Quick-eval reads (`GET /quick-eval/{id}`, `/report`, `/compare`, `/compare/report`) need `X-Admin-Key` whenever eval auth is required (production and development by default, `REQUIRE_EVAL_AUTH` overrides). Only demo mode lets anyone holding a run ID read the run (`routes_public._verify_read_access`). Tests that use run-ID access opt in with the `demo_reads` fixture.
 - `GET /health`: public; reports `deployment` and `eval_auth_required` (the UI uses it for the demo banner).
 - The ARQ pool lives on `app.state.arq_pool` (mocked in tests).
 - The `/runs/compare` route must be registered BEFORE `/runs/{run_id}`.

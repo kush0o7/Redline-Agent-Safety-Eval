@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-202%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-207%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -80,7 +80,7 @@ make report COMPARE=<before_id>,<after_id> DB=demo   # the database `make demo` 
 make report COMPARE=<before_id>,<after_id> FULL=1    # unredacted harmful outputs (sensitive)
 ```
 
-API: `GET /projects/{id}/runs/{run_id}/report`, `GET /projects/{id}/runs/compare/report?base_run_id=&candidate_run_id=` (admin), and `GET /quick-eval/{run_id}/report`, `GET /quick-eval/{run_id}/compare/report?base_run_id=` (same visibility as `GET /quick-eval/{run_id}`). The UI's **Compare two runs** card shows the same flipped cases. No PDF yet; print to PDF from the browser if you need one.
+API: `GET /projects/{id}/runs/{run_id}/report`, `GET /projects/{id}/runs/compare/report?base_run_id=&candidate_run_id=` (admin), and `GET /quick-eval/{run_id}/report`, `GET /quick-eval/{run_id}/compare/report?base_run_id=` (same access as `GET /quick-eval/{run_id}`: the admin key in production and development, run ID only in demo mode). The UI's **Compare two runs** card shows the same flipped cases. No PDF yet; print to PDF from the browser if you need one.
 
 ---
 
@@ -326,7 +326,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 202 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 207 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

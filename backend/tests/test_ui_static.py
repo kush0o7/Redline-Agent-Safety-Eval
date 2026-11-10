@@ -53,3 +53,13 @@ def test_compare_view_redacts_harmful_answers_and_shows_release():
     assert "compareAnswer(d, d.candidate_answer, d.candidate_passed)" in js
     assert "cmp.release.decision" in js and "cmp.release.recommended_action" in js and "d.impact" in js
     assert "improvement${imps.length === 1" in js  # "N regressions · M improvements (of K shared cases)"
+
+
+def test_compare_view_labels_simulated_models_and_sends_key():
+    html = (UI / "index.html").read_text()
+    js = (UI / "app.js").read_text()
+    assert 'id="compareSimulated"' in html and "Simulated models</strong> — illustrative results" in html
+    assert 'startsWith("fake")' in js and 'getElementById("compareSimulated")' in js
+    # Outside demo mode compare + report need the key: the fetch sends it, the report opens from a blob.
+    assert '/compare?base_run_id=${encodeURIComponent(baseId)}`,\n      { headers: getAdminKey()' in js
+    assert "URL.createObjectURL(blob)" in js and '"X-Admin-Key": getAdminKey()' in js

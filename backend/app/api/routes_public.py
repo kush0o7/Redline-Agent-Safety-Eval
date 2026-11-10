@@ -313,7 +313,18 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
     }
 
 
-@router.get("/quick-eval/{run_id}")
+def _verify_read_access(x_admin_key: str | None = Header(default=None)) -> None:
+    """Quick-eval reads (status, reports, compares).
+
+    Production and development (whenever eval auth is required, see REDLINE_ENV /
+    REQUIRE_EVAL_AUTH): the admin key is required. Demo mode only: anyone holding
+    the run id (an unguessable UUID) can read the run, so the hosted demo works.
+    """
+    if settings.require_eval_auth and not constant_time_key_match(x_admin_key):
+        raise HTTPException(status_code=401, detail="Unauthorized: reading runs requires the X-Admin-Key header")
+
+
+@router.get("/quick-eval/{run_id}", dependencies=[Depends(_verify_read_access)])
 def quick_eval_status(run_id: str, include_full_outputs: bool = False, x_admin_key: str | None = Header(default=None),
                       db: Session = Depends(get_db)):
     """Poll for results. When status is 'completed', results are included inline.
@@ -393,8 +404,8 @@ def _as_uuid(value: str) -> uuid.UUID:
         raise HTTPException(status_code=404, detail="Run not found")
 
 
-# Same visibility as GET /quick-eval/{run_id}: anyone holding the run ids.
-@router.get("/quick-eval/{run_id}/report", response_class=HTMLResponse)
+# Same access rule as GET /quick-eval/{run_id} (see _verify_read_access).
+@router.get("/quick-eval/{run_id}/report", response_class=HTMLResponse, dependencies=[Depends(_verify_read_access)])
 def quick_eval_report(run_id: str, include_full_outputs: bool = False, x_admin_key: str | None = Header(default=None),
                       db: Session = Depends(get_db)):
     full = full_outputs_allowed(include_full_outputs, x_admin_key)
@@ -404,7 +415,7 @@ def quick_eval_report(run_id: str, include_full_outputs: bool = False, x_admin_k
     return HTMLResponse(render_run_report(db, run, include_full_outputs=full))
 
 
-@router.get("/quick-eval/{run_id}/compare")
+@router.get("/quick-eval/{run_id}/compare", dependencies=[Depends(_verify_read_access)])
 def quick_eval_compare(run_id: str, base_run_id: str, include_full_outputs: bool = False,
                        x_admin_key: str | None = Header(default=None), db: Session = Depends(get_db)):
     """Compare this run (the candidate, e.g. the new model) against base_run_id (before).
@@ -415,7 +426,7 @@ def quick_eval_compare(run_id: str, base_run_id: str, include_full_outputs: bool
     return build_comparison(db, base, candidate, include_full_outputs=full)
 
 
-@router.get("/quick-eval/{run_id}/compare/report", response_class=HTMLResponse)
+@router.get("/quick-eval/{run_id}/compare/report", response_class=HTMLResponse, dependencies=[Depends(_verify_read_access)])
 def quick_eval_compare_report(run_id: str, base_run_id: str, include_full_outputs: bool = False,
                               x_admin_key: str | None = Header(default=None), db: Session = Depends(get_db)):
     full = full_outputs_allowed(include_full_outputs, x_admin_key)

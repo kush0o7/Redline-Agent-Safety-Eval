@@ -53,3 +53,12 @@ def client(db):
     fake_pool.enqueue_job = AsyncMock()
     app.state.arq_pool = fake_pool
     return TestClient(app)
+
+
+@pytest.fixture
+def demo_reads(monkeypatch):
+    """Demo deployment: quick-eval runs are readable by run id without the admin key."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "redline_env", "demo")
+    monkeypatch.setattr(settings, "require_eval_auth_override", None)

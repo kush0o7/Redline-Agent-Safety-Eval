@@ -109,3 +109,50 @@ def test_init_env_refuses_to_overwrite(tmp_path):
     out.write_text("KEEP=me\n")
     assert mod.main(["--output", str(out), "--template", str(ROOT / ".env.example")]) == 1
     assert out.read_text() == "KEEP=me\n"
+
+
+# ── Quick-eval reads: admin key outside demo mode ────────────────────────────
+
+def _two_runs(client):
+    import asyncio
+    from app.queue import tasks
+
+    a = client.post("/quick-eval", json={"testcase_count": 3, "model": "fake-safe"}, headers=HEADERS).json()
+    asyncio.run(tasks.run_eval_task({}, a["run_id"]))
+    b = client.post("/quick-eval", json={"model": "fake-degraded", "rerun_of": a["run_id"]}, headers=HEADERS).json()
+    asyncio.run(tasks.run_eval_task({}, b["run_id"]))
+    return a["run_id"], b["run_id"]
+
+
+def _reads(base, cand):
+    return [f"/quick-eval/{cand}", f"/quick-eval/{cand}/report",
+            f"/quick-eval/{cand}/compare?base_run_id={base}", f"/quick-eval/{cand}/compare/report?base_run_id={base}"]
+
+
+@pytest.mark.parametrize("env", ["production", "development"])
+def test_quick_eval_reads_need_admin_key_outside_demo(client, monkeypatch, env):
+    base, cand = _two_runs(client)
+    monkeypatch.setattr(settings, "redline_env", env)
+    monkeypatch.setattr(settings, "require_eval_auth_override", None)
+    for url in _reads(base, cand):
+        assert client.get(url).status_code == 401, url
+        assert client.get(url, headers={"X-Admin-Key": "wrong-key-0123456789"}).status_code == 401, url
+        assert client.get(url, headers=HEADERS).status_code == 200, url
+
+
+def test_quick_eval_reads_open_by_run_id_in_demo(client, monkeypatch):
+    base, cand = _two_runs(client)
+    monkeypatch.setattr(settings, "redline_env", "demo")
+    monkeypatch.setattr(settings, "require_eval_auth_override", None)
+    for url in _reads(base, cand):
+        assert client.get(url).status_code == 200, url
+
+
+def test_require_eval_auth_override_governs_reads_too(client, monkeypatch):
+    base, cand = _two_runs(client)
+    monkeypatch.setattr(settings, "redline_env", "production")
+    monkeypatch.setattr(settings, "require_eval_auth_override", False)
+    assert all(client.get(u).status_code == 200 for u in _reads(base, cand))
+    monkeypatch.setattr(settings, "redline_env", "demo")
+    monkeypatch.setattr(settings, "require_eval_auth_override", True)
+    assert all(client.get(u).status_code == 401 for u in _reads(base, cand))

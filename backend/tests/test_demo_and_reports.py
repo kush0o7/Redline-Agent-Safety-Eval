@@ -23,6 +23,9 @@ from app.llm.schemas import LLMMessage
 from app.queue import tasks
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
+# These tests exercise run-id access to reports and compares, which only demo mode allows;
+# production/development read auth is covered in test_deployment.py.
+pytestmark = pytest.mark.usefixtures("demo_reads")
 ROOT = Path(__file__).resolve().parents[2]
 HARMFUL = {"jailbreak", "harmbench", "refusal", "fin_unsafe_advice", "fin_data_leakage", "fin_fraud", "injection"}
 

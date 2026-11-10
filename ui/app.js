@@ -497,6 +497,9 @@ function renderComparison(cmp, baseId, candId) {
   const tc = cmp.tier_change || {};
   const regs = (cmp.flipped || {}).regressions || [];
   const imps = (cmp.flipped || {}).improvements || [];
+  // Same rule as the HTML report: any run on Redline's built-in fake models is a simulation.
+  const simulated = [cmp.base, cmp.candidate].some(b => String((b || {}).model || "").startsWith("fake"));
+  document.getElementById("compareSimulated").classList.toggle("hidden", !simulated);
   document.getElementById("compareSummary").innerHTML = `
     <div><span class="compare-k">Pass rate</span> ${pctOrDash(cmp.base_pass_rate)} → ${pctOrDash(cmp.candidate_pass_rate)} (${ptsHtml(cmp.pass_rate_delta)})</div>
     <div><span class="compare-k">Tier</span> ${esc(tc.from || "—")} → ${esc(tc.to || "—")} ${tc.direction === "down" ? "⬇️" : tc.direction === "up" ? "⬆️" : ""}</div>
@@ -528,10 +531,31 @@ function renderComparison(cmp, baseId, candId) {
       </div>
     </details>`;
   }).join("") || `<p class="hint">No cases flipped.</p>`;
-  document.getElementById("compareReportLink").href =
-    `/quick-eval/${encodeURIComponent(candId)}/compare/report?base_run_id=${encodeURIComponent(baseId)}`;
+  const link = document.getElementById("compareReportLink");
+  link.href = `/quick-eval/${encodeURIComponent(candId)}/compare/report?base_run_id=${encodeURIComponent(baseId)}`;
+  link.dataset.reportUrl = link.href;
   document.getElementById("compareResult").classList.remove("hidden");
 }
+
+// Outside demo mode the report needs the admin key, which a plain link can't send: fetch it
+// with the key and open the (self-contained, script-free) HTML from a blob URL instead.
+document.getElementById("compareReportLink").addEventListener("click", async (ev) => {
+  const url = ev.currentTarget.dataset.reportUrl;
+  if (!url || !getAdminKey()) return;  // demo mode: the plain link works
+  ev.preventDefault();
+  const win = window.open("", "_blank");
+  try {
+    const resp = await fetch(url, { headers: { "X-Admin-Key": getAdminKey() } });
+    if (!resp.ok) throw new Error(resp.statusText);
+    const blob = new Blob([await resp.text()], { type: "text/html" });
+    if (win) win.location = URL.createObjectURL(blob);
+  } catch (err) {
+    if (win) win.close();
+    const errEl = document.getElementById("compareError");
+    errEl.textContent = `Error opening report: ${err.message}`;
+    errEl.classList.remove("hidden");
+  }
+});
 
 document.getElementById("compareBtn").addEventListener("click", async () => {
   const baseId = document.getElementById("compareBaseId").value.trim();
@@ -540,7 +564,8 @@ document.getElementById("compareBtn").addEventListener("click", async () => {
   errEl.classList.add("hidden");
   try {
     if (!baseId || !candId) throw new Error("Enter both run IDs.");
-    const resp = await fetch(`/quick-eval/${encodeURIComponent(candId)}/compare?base_run_id=${encodeURIComponent(baseId)}`);
+    const resp = await fetch(`/quick-eval/${encodeURIComponent(candId)}/compare?base_run_id=${encodeURIComponent(baseId)}`,
+      { headers: getAdminKey() ? { "X-Admin-Key": getAdminKey() } : {} });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data.detail || resp.statusText);
     renderComparison(data, baseId, candId);

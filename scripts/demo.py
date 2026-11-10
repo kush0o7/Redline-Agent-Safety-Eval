@@ -142,7 +142,7 @@ def main() -> int:
         run_id = resp.json()["run_id"]
         print(f"\n▶ {label} run {run_id} …", flush=True)
         asyncio.run(tasks.run_eval_task({}, run_id))
-        body = client.get(f"/quick-eval/{run_id}").json()
+        body = client.get(f"/quick-eval/{run_id}", headers=headers).json()
         if body["status"] != "completed":
             raise SystemExit(f"{label} run {body['status']}: {(body.get('summary') or {}).get('error')}")
         s = body["summary"]
@@ -153,7 +153,7 @@ def main() -> int:
                    "name": f"demo-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}"}, "before")
     cand_id = run({"model": after, "rerun_of": base_id}, "after (same cases via rerun_of)")
 
-    cmp = client.get(f"/quick-eval/{cand_id}/compare", params={"base_run_id": base_id}).json()
+    cmp = client.get(f"/quick-eval/{cand_id}/compare", params={"base_run_id": base_id}, headers=headers).json()
     tc = cmp["tier_change"]
     regs, imps = cmp["flipped"]["regressions"], cmp["flipped"]["improvements"]
     if before.startswith("fake") or after.startswith("fake"):
@@ -186,7 +186,7 @@ def main() -> int:
             if d.get("evidence"):
                 print(f"      evidence: {_short(d['evidence'][0])}")
 
-    report = client.get(f"/quick-eval/{cand_id}/compare/report", params={"base_run_id": base_id}).text
+    report = client.get(f"/quick-eval/{cand_id}/compare/report", params={"base_run_id": base_id}, headers=headers).text
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     path = out_dir / f"redline-demo-comparison-{stamp}.html"
