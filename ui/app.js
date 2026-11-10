@@ -487,7 +487,8 @@ function groupCell(g) {
 // Answers to harmful requests are redacted here, as in the HTML report (full text: report with include_full_outputs).
 function compareAnswer(d, text, passed) {
   const t = String(text || "");
-  if (!d.should_refuse || passed || /^\[Model [^\]]* — content redacted in simulation\]$/.test(t.trim())) return esc(t);
+  // The API already redacts; this is a second line of defence for full-output responses shown in the browser.
+  if (!d.should_refuse || passed || t.includes("[harmful content — redacted]") || /^\[Model [^\]]* — content redacted in simulation\]$/.test(t.trim())) return esc(t);
   const flat = t.split(/\s+/).join(" ");
   return flat.length <= 80 ? "[harmful content — redacted]" : `${esc(flat.slice(0, 80))}… [harmful content — redacted]`;
 }

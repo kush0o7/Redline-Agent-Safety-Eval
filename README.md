@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-199%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-202%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -71,7 +71,7 @@ Every run and every comparison can be exported as a single self-contained HTML f
 - Regressions grouped by category (most severe first, collapsible), each with its verdict, evidence and, for injection cases, a business-impact line worked out from the agent's actual tool calls (e.g. "Would have transferred EUR 1,000 to an attacker-controlled IBAN").
 - Methodology notes, timestamp, Redline version and case-set fingerprint. Reports on simulated models carry a banner saying so.
 
-**Redaction.** Answers to harmful requests are redacted by default: the report shows an 80-character excerpt, the verdict and the evidence. Injection tool calls and their arguments are always shown (long arguments are truncated). To include full outputs, which adds a warning banner, use `FULL=1` / `--include-full-outputs` / `?include_full_outputs=true`. The public `/quick-eval/...` report endpoints require `X-Admin-Key` for full outputs. The compare JSON API returns raw answers.
+**Redaction.** Answers to harmful requests are redacted by default: the report shows an 80-character excerpt, the verdict and the evidence. Injection tool calls and their arguments are always shown (long arguments are truncated). To include full outputs, which adds a warning banner, use `FULL=1` / `--include-full-outputs` / `?include_full_outputs=true`. The JSON APIs follow the same rule: `GET /quick-eval/{id}`, both compare endpoints, `/runs/{id}/results` and `/runs/{id}/traces/{testcase_id}` all return redacted text, with a `*_redacted` flag. Full text needs `include_full_outputs=true` **and** `X-Admin-Key`; on public routes, the flag without the key returns 403.
 
 ```bash
 make report RUN=<run_id>                       # uses POSTGRES_URL from .env
@@ -326,7 +326,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 199 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 202 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -285,3 +285,80 @@ def test_report_groups_regressions_and_uses_plain_labels(client):
     # Executive summary sits above the cards.
     assert html.index("Release decision: FAIL") < html.index("class='cards'")
     assert "Top risks" in html and "Recommended action:" in html and "Business impact:" in html
+
+
+# ── API redaction (every endpoint that returns model outputs) ────────────────
+
+def _plant_everywhere(db, run_id: str):
+    """Harmful text in both the stored answer and the trace of one failed should-refuse case."""
+    from app.db.models import Trace
+
+    name = _plant_harmful_answer(db, run_id)
+    tc = db.query(Testcase).filter(Testcase.name == name, Testcase.id.in_(
+        [r.testcase_id for r in db.query(RunResult).filter(RunResult.run_id == uuid.UUID(run_id))])).one()
+    trace = db.query(Trace).filter(Trace.run_id == uuid.UUID(run_id), Trace.testcase_id == tc.id).one()
+    trace.events = [*trace.events, {"t": "assistant", "msg": HARMFUL_TEXT, "role": "final"}]
+    db.commit()
+    return tc
+
+
+def _api_texts(client, base, cand, pid, tc, params=None, headers=None):
+    params, headers = params or {}, headers or {}
+    admin = HEADERS | headers
+    return {
+        "quick-eval status": client.get(f"/quick-eval/{cand}", params=params, headers=headers),
+        "quick-eval compare": client.get(f"/quick-eval/{cand}/compare", params={"base_run_id": base} | params, headers=headers),
+        "admin compare": client.get(f"/projects/{pid}/runs/compare",
+                                    params={"base_run_id": base, "candidate_run_id": cand} | params, headers=admin),
+        "admin results": client.get(f"/projects/{pid}/runs/{cand}/results", params=params, headers=admin),
+        "admin trace": client.get(f"/projects/{pid}/runs/{cand}/traces/{tc.id}", params=params, headers=admin),
+    }
+
+
+def test_api_redacts_harmful_outputs_by_default(client, db):
+    base, cand, pid = _before_after(client)
+    tc = _plant_everywhere(db, cand)
+    for name, resp in _api_texts(client, base, cand, pid, tc).items():
+        assert resp.status_code == 200, name
+        assert SECRET not in resp.text, name
+        assert "[harmful content — redacted]" in resp.text, name
+    body = client.get(f"/quick-eval/{cand}").json()
+    row = next(r for r in body["results"] if r["testcase_name"] == tc.name)
+    assert row["response_redacted"] is True and body["outputs_redacted"] is True
+    assert row["response"].startswith(HARMFUL_TEXT[:80])  # short safe excerpt
+    d = next(x for x in client.get(f"/quick-eval/{cand}/compare", params={"base_run_id": base}).json()["flipped"]["regressions"]
+             if x["name"] == tc.name)
+    assert d["candidate_answer_redacted"] is True and d["base_answer_redacted"] is False  # the refusal stays readable
+    # Injection evidence is never redacted.
+    cmp = client.get(f"/quick-eval/{cand}/compare", params={"base_run_id": base}).json()
+    inj = [x for x in cmp["flipped"]["regressions"] if x["type"] == "injection"]
+    assert inj and not any(x["candidate_answer_redacted"] for x in inj)
+    assert any(x["agent_tool_calls"] for x in inj)  # output-graded cases (markdown image, hijack) make no calls
+
+
+def test_api_full_outputs_need_flag_and_admin_key(client, db):
+    base, cand, pid = _before_after(client)
+    tc = _plant_everywhere(db, cand)
+    # Flag + admin key → full text everywhere.
+    for name, resp in _api_texts(client, base, cand, pid, tc, params={"include_full_outputs": "true"}, headers=HEADERS).items():
+        assert resp.status_code == 200 and SECRET in resp.text, name
+    # Admin key alone is not enough: still redacted.
+    for name, resp in _api_texts(client, base, cand, pid, tc, headers=HEADERS).items():
+        assert SECRET not in resp.text, name
+    # Flag without (or with a wrong) key on the public routes → 403.
+    for bad in ({}, {"X-Admin-Key": "wrong-key-xxxxxxxx"}):
+        assert client.get(f"/quick-eval/{cand}", params={"include_full_outputs": "true"}, headers=bad).status_code == 403
+        assert client.get(f"/quick-eval/{cand}/compare", params={"base_run_id": base, "include_full_outputs": "true"},
+                          headers=bad).status_code == 403
+        # Admin routes reject a missing/wrong key outright.
+        assert client.get(f"/projects/{pid}/runs/{cand}/results", params={"include_full_outputs": "true"}, headers=bad).status_code == 401
+
+
+def test_report_still_redacts_from_raw_comparison(client, db):
+    """The HTML report asks build_comparison for raw text and redacts once (no double markers)."""
+    base, cand, _ = _before_after(client)
+    _plant_harmful_answer(db, cand)
+    html = client.get(f"/quick-eval/{cand}/compare/report", params={"base_run_id": base}).text
+    assert SECRET not in html
+    assert html.count("[harmful content — redacted]") == html.count("more characters hidden") + html.count(
+        "<pre class='redacted'>[harmful content — redacted]</pre>")

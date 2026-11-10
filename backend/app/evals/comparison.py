@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Run, RunResult, Testcase
 from app.evals.case_sets import case_set_for_run, compare_case_sets
+from app.evals.redaction import maybe_redact
 from app.evals.release import TIER_RANK, injection_impact, release_decision, tier_rank
 from app.utils.tiers import load_tier_config, tier_category
 
@@ -111,7 +112,8 @@ def _seeded_text(tc: Testcase | None) -> str:
     return " ".join(str(o.get("result", "")) for o in outs)[:4000]
 
 
-def build_comparison(db: Session, base_run: Run, candidate_run: Run) -> dict:
+def build_comparison(db: Session, base_run: Run, candidate_run: Run, *, include_full_outputs: bool = False) -> dict:
+    """Comparison of two runs. Answers to harmful requests are redacted unless include_full_outputs."""
     case_set = compare_case_sets(case_set_for_run(db, base_run), case_set_for_run(db, candidate_run))
     base_rows = db.query(RunResult).filter(RunResult.run_id == base_run.id).all()
     cand_rows = db.query(RunResult).filter(RunResult.run_id == candidate_run.id).all()
@@ -140,6 +142,7 @@ def build_comparison(db: Session, base_run: Run, candidate_run: Run) -> dict:
         out.update({"pass_rate_delta": None, "metrics": {}, "changed_testcases": [],
                     "flipped": {"regressions": [], "improvements": []}})
         out["release"] = release_decision(out)
+        out["outputs_redacted"] = not include_full_outputs
         return out
 
     base_rate = _rate([base_by[t].passed for t in common])
@@ -176,4 +179,9 @@ def build_comparison(db: Session, base_run: Run, candidate_run: Run) -> dict:
     out["release"] = release_decision(out)
     for d in details:
         d.pop("data_text", None)  # only needed to word the impact; the prompt and evidence carry the rest
+        exp = {"should_refuse": d["should_refuse"]}
+        d["base_answer"], d["base_answer_redacted"] = maybe_redact(d["base_answer"], exp, d["base_passed"], include_full_outputs)
+        d["candidate_answer"], d["candidate_answer_redacted"] = maybe_redact(
+            d["candidate_answer"], exp, d["candidate_passed"], include_full_outputs)
+    out["outputs_redacted"] = not include_full_outputs
     return out

@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import html
 import json
-import re
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.db.models import Run, RunResult, Testcase
 from app.evals.comparison import build_comparison, run_brief
+from app.evals.redaction import REDACTED, redact_text
 from app.evals.release import injection_impact, risk_sentence
 from app.utils.tiers import load_tier_config, tier_category
 from app.version import redline_version
@@ -29,8 +29,6 @@ MAX_ANSWER_CHARS = 4000
 MAX_INJECTION_ANSWER_CHARS = 600   # an injected agent's final text can echo the whole attacker payload
 MAX_ARG_CHARS = 160                # per tool-call argument (e.g. an exfiltrated email body)
 MAX_EVIDENCE_CHARS = 300
-REDACT_EXCERPT_CHARS = 80
-REDACTED = "[harmful content — redacted]"
 
 _CSS = """
 :root{--fg:#111827;--muted:#6b7280;--line:#e5e7eb;--bg:#ffffff;--card:#f9fafb;--bad:#b91c1c;--good:#15803d;--warn:#a16207}
@@ -190,18 +188,8 @@ def _banners(briefs: list[dict], include_full_outputs: bool) -> str:
     return out
 
 
-_SIM_PLACEHOLDER = re.compile(r"^\[Model [^\]]{0,200} — content redacted in simulation\]$")
-
-
 def _redacted(text) -> str:
-    text = "" if text is None else str(text)
-    flat = " ".join(text.split())
-    if _SIM_PLACEHOLDER.match(flat):  # simulated models never produce harmful text: show the placeholder whole
-        return f"<pre class='redacted'>{_e(flat)}</pre>"
-    if len(flat) <= REDACT_EXCERPT_CHARS:
-        return f"<pre class='redacted'>{_e(REDACTED)}</pre>"
-    return (f"<pre class='redacted'>{_e(flat[:REDACT_EXCERPT_CHARS])}… "
-            f"{_e(REDACTED)} ({len(text) - REDACT_EXCERPT_CHARS:,} more characters hidden)</pre>")
+    return f"<pre class='redacted'>{_e(redact_text(text))}</pre>"
 
 
 def _output(text, *, harmful_failure: bool, include_full: bool, limit: int = MAX_ANSWER_CHARS) -> str:
@@ -308,7 +296,8 @@ def _exec_summary(rel: dict) -> str:
 
 def render_comparison_report(db: Session, base_run: Run, candidate_run: Run, *, now: str | None = None,
                              include_full_outputs: bool = False) -> str:
-    cmp = build_comparison(db, base_run, candidate_run)
+    # Raw answers here; this renderer redacts them itself (same rules, see _output).
+    cmp = build_comparison(db, base_run, candidate_run, include_full_outputs=True)
     now = now or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     b, c, tc = cmp["base"], cmp["candidate"], cmp["tier_change"]
     tier_cls = "bad" if tc["direction"] == "down" else "good" if tc["direction"] == "up" else "muted"

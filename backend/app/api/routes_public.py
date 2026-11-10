@@ -19,6 +19,7 @@ from app.db.models import AnalyticsEvent, InviteToken, Project, Run, RunResult, 
 from app.db.session import get_db
 from app.evals.case_sets import build_case_set, case_set_for_run
 from app.evals.comparison import build_comparison
+from app.evals.redaction import full_outputs_allowed, maybe_redact
 from app.reports.html_report import render_comparison_report, render_run_report
 from app.evals.testcases import TestcaseSeed, build_default_testcases
 from app.core.config import settings
@@ -313,8 +314,12 @@ async def quick_eval(payload: QuickEvalCreate, request: Request, db: Session = D
 
 
 @router.get("/quick-eval/{run_id}")
-def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
-    """Poll for results. When status is 'completed', results are included inline."""
+def quick_eval_status(run_id: str, include_full_outputs: bool = False, x_admin_key: str | None = Header(default=None),
+                      db: Session = Depends(get_db)):
+    """Poll for results. When status is 'completed', results are included inline.
+
+    Answers to harmful requests are redacted unless include_full_outputs=true with the admin key."""
+    full = full_outputs_allowed(include_full_outputs, x_admin_key)
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -338,6 +343,10 @@ def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
         tc_map = {str(tc.id): tc for tc in testcases}
         response["tier"] = _stored_tier(run.summary)
         response["tier_evaluation"] = (run.summary or {}).get("tier_evaluation")
+        def _out(r: RunResult) -> tuple:
+            return maybe_redact(r.raw_output, _exp(tc_map, r), r.passed, full)
+
+        response["outputs_redacted"] = not full
         response["results"] = [
             {
                 "testcase_id": str(r.testcase_id),
@@ -346,7 +355,8 @@ def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
                 "pack": tc_map[str(r.testcase_id)].pack if str(r.testcase_id) in tc_map else None,
                 "severity": tc_map[str(r.testcase_id)].severity if str(r.testcase_id) in tc_map else None,
                 "prompt": tc_map[str(r.testcase_id)].prompt if str(r.testcase_id) in tc_map else None,
-                "response": r.raw_output,
+                "response": (out := _out(r))[0],
+                "response_redacted": out[1],
                 "passed": r.passed,
                 "scores": r.scores,
                 "judge_reasoning": r.judge_reasoning,
@@ -356,6 +366,11 @@ def quick_eval_status(run_id: str, db: Session = Depends(get_db)):
         ]
 
     return response
+
+
+def _exp(tc_map: dict, r: RunResult) -> dict | None:
+    tc = tc_map.get(str(r.testcase_id))
+    return tc.expected_behavior if tc else None
 
 
 def _quick_eval_pair(db: Session, run_id: str, base_run_id: str) -> tuple[Run, Run]:
@@ -378,18 +393,11 @@ def _as_uuid(value: str) -> uuid.UUID:
         raise HTTPException(status_code=404, detail="Run not found")
 
 
-def _full_outputs_allowed(include_full_outputs: bool, x_admin_key: str | None) -> bool:
-    """Unredacted harmful outputs need the admin key, even where the redacted report is public."""
-    if include_full_outputs and not constant_time_key_match(x_admin_key):
-        raise HTTPException(status_code=403, detail="include_full_outputs requires the X-Admin-Key header")
-    return include_full_outputs
-
-
 # Same visibility as GET /quick-eval/{run_id}: anyone holding the run ids.
 @router.get("/quick-eval/{run_id}/report", response_class=HTMLResponse)
 def quick_eval_report(run_id: str, include_full_outputs: bool = False, x_admin_key: str | None = Header(default=None),
                       db: Session = Depends(get_db)):
-    full = _full_outputs_allowed(include_full_outputs, x_admin_key)
+    full = full_outputs_allowed(include_full_outputs, x_admin_key)
     run = db.get(Run, _as_uuid(run_id))
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -397,16 +405,20 @@ def quick_eval_report(run_id: str, include_full_outputs: bool = False, x_admin_k
 
 
 @router.get("/quick-eval/{run_id}/compare")
-def quick_eval_compare(run_id: str, base_run_id: str, db: Session = Depends(get_db)):
-    """Compare this run (the candidate, e.g. the new model) against base_run_id (before)."""
+def quick_eval_compare(run_id: str, base_run_id: str, include_full_outputs: bool = False,
+                       x_admin_key: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Compare this run (the candidate, e.g. the new model) against base_run_id (before).
+
+    Answers to harmful requests are redacted unless include_full_outputs=true with the admin key."""
+    full = full_outputs_allowed(include_full_outputs, x_admin_key)
     base, candidate = _quick_eval_pair(db, run_id, base_run_id)
-    return build_comparison(db, base, candidate)
+    return build_comparison(db, base, candidate, include_full_outputs=full)
 
 
 @router.get("/quick-eval/{run_id}/compare/report", response_class=HTMLResponse)
 def quick_eval_compare_report(run_id: str, base_run_id: str, include_full_outputs: bool = False,
                               x_admin_key: str | None = Header(default=None), db: Session = Depends(get_db)):
-    full = _full_outputs_allowed(include_full_outputs, x_admin_key)
+    full = full_outputs_allowed(include_full_outputs, x_admin_key)
     base, candidate = _quick_eval_pair(db, run_id, base_run_id)
     return HTMLResponse(render_comparison_report(db, base, candidate, include_full_outputs=full))
 

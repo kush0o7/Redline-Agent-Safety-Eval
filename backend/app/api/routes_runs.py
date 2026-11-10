@@ -16,6 +16,7 @@ from app.db.models import Project, Run, RunResult, Testcase, Trace
 from app.db.session import get_db
 from app.evals.case_sets import build_case_set
 from app.evals.comparison import build_comparison
+from app.evals.redaction import is_harmful_failure, maybe_redact, redact_trace_events
 from app.reports.html_report import render_comparison_report, render_run_report
 from app.utils.time import now_iso
 
@@ -84,9 +85,11 @@ def _run_pair(db: Session, project_id: str, base_run_id: str, candidate_run_id: 
 
 
 @router.get("/projects/{project_id}/runs/compare")
-def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, db: Session = Depends(get_db)):
+def compare_runs(project_id: str, base_run_id: str, candidate_run_id: str, include_full_outputs: bool = False,
+                 db: Session = Depends(get_db)):
+    """Admin route (key already required): harmful answers redacted unless include_full_outputs=true."""
     base_run, candidate_run = _run_pair(db, project_id, base_run_id, candidate_run_id)
-    return build_comparison(db, base_run, candidate_run)
+    return build_comparison(db, base_run, candidate_run, include_full_outputs=include_full_outputs)
 
 
 # Registered before /runs/{run_id}/... so "compare" isn't parsed as a run id.
@@ -175,27 +178,31 @@ async def stream_run(
 
 
 @router.get("/projects/{project_id}/runs/{run_id}/results")
-def get_results(project_id: str, run_id: str, db: Session = Depends(get_db)):
+def get_results(project_id: str, run_id: str, include_full_outputs: bool = False, db: Session = Depends(get_db)):
     run = db.get(Run, run_id)
     if not run or str(run.project_id) != project_id:
         raise HTTPException(status_code=404, detail="Run not found")
     rows = db.query(RunResult).filter(RunResult.run_id == run.id).all()
-    return [
-        {
+    expected = {str(t.id): t.expected_behavior for t in db.query(Testcase).filter(Testcase.id.in_([r.testcase_id for r in rows])).all()} if rows else {}
+    out = []
+    for row in rows:
+        text, redacted = maybe_redact(row.raw_output, expected.get(str(row.testcase_id)), row.passed, include_full_outputs)
+        out.append({
             "testcase_id": str(row.testcase_id),
             "passed": row.passed,
             "scores": row.scores,
-            "raw_output": row.raw_output,
+            "raw_output": text,
+            "raw_output_redacted": redacted,
             "refusal": row.refusal,
             "confidence": row.confidence,
             "created_at": row.created_at.isoformat(),
-        }
-        for row in rows
-    ]
+        })
+    return out
 
 
 @router.get("/projects/{project_id}/runs/{run_id}/traces/{testcase_id}")
-def get_trace(project_id: str, run_id: str, testcase_id: str, db: Session = Depends(get_db)):
+def get_trace(project_id: str, run_id: str, testcase_id: str, include_full_outputs: bool = False,
+              db: Session = Depends(get_db)):
     run = db.get(Run, run_id)
     if not run or str(run.project_id) != project_id:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -206,4 +213,11 @@ def get_trace(project_id: str, run_id: str, testcase_id: str, db: Session = Depe
     )
     if not trace:
         raise HTTPException(status_code=404, detail="Trace not found")
-    return {"events": trace.events, "injection_detected": trace.injection_detected}
+    events = trace.events
+    if not include_full_outputs:
+        tc = db.get(Testcase, trace.testcase_id)
+        result = (db.query(RunResult).filter(RunResult.run_id == run.id, RunResult.testcase_id == trace.testcase_id)
+                  .one_or_none())
+        if tc and is_harmful_failure(tc.expected_behavior, result.passed if result else False):
+            events = redact_trace_events(events)
+    return {"events": events, "injection_detected": trace.injection_detected}
