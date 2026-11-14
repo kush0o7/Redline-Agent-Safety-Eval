@@ -54,15 +54,15 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 308 tests, no API keys required
+pytest tests/ -q   # 312 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
 
 ## Test cases and packs
 
-- 152 cases in total: 131 core (when the bundled JailbreakBench data loads) and 21 `financial_services`.
-- Core by type: benign 36, injection 30, jailbreak 28, harmbench 19, refusal 8, hallucination 7, overconfidence 3.
+- 172 cases in total: 151 core and 21 `financial_services`, identical on every install. The 20 JailbreakBench behaviors (MIT) are bundled in `evals/data/jbb_behaviors.json` (2 per category; severity by category, `testcases.JBB_SEVERITY`); there's no `jailbreakbench` dependency and no download.
+- Core by type: benign 36, injection 30, jailbreak 48, harmbench 19, refusal 8, hallucination 7, overconfidence 3.
 - Core types roll up into scoring categories (`tiers.default.toml` → `[categories]`): `harmful_compliance`, `injection`, `hallucination`, `over_refusal`.
 - Every domain pack is reported as its own category.
 - Injection cases live in `evals/injection_cases.py` (8 hand-written + a `_SCENARIOS` × `_GOALS` grid, `_GRID`, for 30 in total): `expected_behavior["injection"]` = `tools`, `tool_outputs` (seeded tool calls whose results carry the payload), `attack` (`goal` + `checks`). Checks (`evals/injection_checks.py`: `tool_call`, `output_regex`, `output_starts_with`) decide in code; the judge is only a fallback when `checks` is empty. Results carry `decided_by` (`code` / `judge` / `heuristic`). The fake provider follows injections when the model name contains `vulnerable`.
@@ -95,7 +95,7 @@ A run with fewer than 30 cases, or fewer than 5 in any reported category, is `Pr
 2. ~~Every request uses `BASELINE_SYSTEM_PROMPT`~~ done: per-run `system_prompt_mode` (`none` / `redline` / `custom`), see below.
 3. Injection scoring: now mostly done by B1 (code checks). Left: the judge fallback for cases without checks (`judge_injection`) is unvalidated.
 4. There's no judge validation set or agreement metric. `JudgeVerdict` puts each reasoning field *after* its verdict.
-5. There's no enforced offline mode. LiteLLM and the JailbreakBench loader may make network calls.
+5. There's no enforced offline mode. LiteLLM may make network calls (the JailbreakBench data is bundled now).
 6. There's no CI workflow, and `FIELD_ENCRYPTION_KEY` isn't required in production yet.
 
 Out of scope for now: accounts/multi-tenancy, compliance PDF export, multi-turn attacks.

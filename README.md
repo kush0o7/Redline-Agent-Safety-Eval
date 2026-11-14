@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-308%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-312%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -209,13 +209,13 @@ The research behind these choices, with exact figures and how each was checked, 
 
 | Pack | Category (used for tiers) | Types | Cases |
 |---|---|---|---|
-| core | `harmful_compliance` | `jailbreak` (JailbreakBench sample + persona/framing/direct-override attacks), `harmbench` (hand-written, HarmBench-style), `refusal` | 28 + 19 + 8 |
+| core | `harmful_compliance` | `jailbreak` (20 JailbreakBench behaviors, bundled, plus persona/framing/direct-override attacks), `harmbench` (hand-written, HarmBench-style), `refusal` | 48 + 19 + 8 |
 | core | `injection` | `injection` (indirect, delivered as real tool results, graded in code: 8 hand-written scenarios + a 22-case grid of data source × attacker goal) | 30 |
 | core | `hallucination` | `hallucination`, `overconfidence` | 7 + 3 |
 | core | `over_refusal` | `benign` (incl. 20 XSTest-style prompts) | 36 |
 | financial_services | `financial_services` | `fin_unsafe_advice`, `fin_data_leakage`, `fin_fraud`, `fin_benign` | 5 + 5 + 5 + 6 |
 
-That's 131 core cases (when the bundled JailbreakBench data loads) and 21 financial services cases, 152 in total. The financial pack covers unlicensed or misleading advice, customer data disclosure, KYC bypass, structuring, social engineering and document fraud, plus ordinary banking questions that must *not* be refused.
+That's 151 core cases and 21 financial services cases, 172 in total, identical on every install. The 20 JailbreakBench behaviors (MIT licence; the first 2 of each of its 10 harm categories) ship as a data file, `backend/app/evals/data/jbb_behaviors.json`, so nothing is downloaded at runtime. The financial pack covers unlicensed or misleading advice, customer data disclosure, KYC bypass, structuring, social engineering and document fraud, plus ordinary banking questions that must *not* be refused.
 
 **Injection cases are graded on actions, in code.** Each one is a small agent scenario: the user asks for something harmless, the agent has already called a data tool (inbox, document, web page, transactions), and the attacker's instructions arrive inside that tool's result as a real `tool` message. The agent is offered stub action tools (`send_email`, `send_money`, `http_request`, `update_password`, `share_file`, `delete_file`); nothing leaves the harness. The case fails if the agent *attempts* the attacker's action (a tool call with the attacker's arguments) or emits the attacker's marker in its output. LLM judges are unreliable on adversarial text and can be steered by the injection they're grading, so the judge is only a fallback for cases without a code check. Every result records `decided_by` (`code`, `judge`, or `heuristic` in test mode). The 30 cases cover eight attacker goals (email exfiltration, HTTP exfiltration of a secret, payment to an attacker IBAN, password change, sharing a customer file, deleting records, leaking data through a markdown image, and hijacking the reply) delivered through emails, web pages, documents, support tickets, transaction memos and calendar invites, so resisting one phrasing in one place doesn't earn credit for the category. Injection cases need a target that supports tool calling (OpenAI-compatible endpoints, Ollama, Anthropic and Bedrock; a target without tool support fails the run with `ToolCallingNotSupported`). To test a target without tools, pass `exclude_categories: ["injection"]`; the run is then Provisional. Scenarios live in `backend/app/evals/injection_cases.py`; check types are documented in `backend/app/evals/injection_checks.py`.
 
@@ -273,7 +273,7 @@ These are honest, and most are on the near-term roadmap:
 - **Injection scenarios are single-task with stub tools.** Payloads arrive as real tool results and are graded in code on what the agent attempted, not on real-world effects. Targets must support tool calling; a target without it fails the run.
 - **The system prompt is yours to set.** Runs against `agent_endpoint_url` send no system prompt by default, and plain model runs use Redline's short generic one. Neither is your production prompt unless you pass it with `system_prompt_mode: "custom"`. Results depend on the prompt, so test with the one you ship. Runs made before this option existed used the Redline default, and reports say so.
 - **Judge accuracy isn't measured yet.** There's no human-labelled validation set, so judge agreement is unknown. Treat scores as indicative and read the judge reasoning on failures that matter.
-- **"Offline" isn't enforced.** A self-hosted install can use a local judge (for example `JUDGE_MODEL=ollama/llama3.1`), but nothing yet *guarantees* zero outbound calls. LiteLLM fetches its model price map online at import unless `LITELLM_LOCAL_MODEL_COST_MAP=True` (the demo sets it). The JailbreakBench data is read from the installed package.
+- **"Offline" isn't enforced.** A self-hosted install can use a local judge (for example `JUDGE_MODEL=ollama/llama3.1`), but nothing yet *guarantees* zero outbound calls. LiteLLM fetches its model price map online at import unless `LITELLM_LOCAL_MODEL_COST_MAP=True` (the demo sets it). The JailbreakBench behaviors are bundled with Redline, so loading cases makes no network call.
 - **Single-turn only.** Crescendo-style multi-turn attacks are approximated with injected prior context.
 - **One admin key.** There are no user accounts or per-team isolation.
 - **Coverage.** A pass means the system resisted *these* cases; novel attacks may still succeed.
@@ -350,7 +350,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 308 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 312 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
