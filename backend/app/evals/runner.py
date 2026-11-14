@@ -51,6 +51,13 @@ def _select_agent(mode: str) -> AgentUnderTest:
     raise ValueError("Unknown mode")
 
 
+def _is_retryable(exc: Exception) -> bool:
+    """Rate limits and transient network failures (timeouts, dropped connections) are retried."""
+    if isinstance(exc, (httpx.TimeoutException, httpx.RemoteProtocolError, httpx.ConnectError)):
+        return True
+    return _is_rate_limited(exc)
+
+
 def _is_rate_limited(exc: Exception) -> bool:
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
         return True
@@ -63,7 +70,7 @@ async def _run_with_retries(agent: AgentUnderTest, testcase: Testcase, context: 
         try:
             return await agent.run(testcase.prompt, context, seed, provider=provider)
         except Exception as e:
-            if _is_rate_limited(e) and attempt < _MAX_ATTEMPTS - 1:
+            if _is_retryable(e) and attempt < _MAX_ATTEMPTS - 1:
                 await asyncio.sleep(15 * (attempt + 1))
             else:
                 raise

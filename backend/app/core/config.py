@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     tier_config_path: str | None = Field(default=None, validation_alias="TIER_CONFIG_PATH")
     # Max seconds a single eval run may take before the worker kills it.
     job_timeout_seconds: int = Field(3600, validation_alias="JOB_TIMEOUT_SECONDS")
+    # Per-request timeout for the target model. Local models (Ollama) can take minutes on the
+    # first request while the weights load onto the GPU; timeouts are retried (runner._is_retryable).
+    llm_timeout_seconds: float = Field(120, gt=0, validation_alias="LLM_TIMEOUT_SECONDS")
     # Max queued jobs before /quick-eval returns 503.
     max_queued_jobs: int = Field(20, validation_alias="MAX_QUEUED_JOBS")
     # Fernet key for encrypting agent_endpoint_key at rest (base64url, 32 bytes).

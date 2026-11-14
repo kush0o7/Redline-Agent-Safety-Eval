@@ -143,7 +143,7 @@ class OpenAIProvider(BaseProvider):
             if attempt:
                 await asyncio.sleep(10 * attempt)  # 10s, 20s back-off on 429
             try:
-                async with httpx.AsyncClient(timeout=60) as client:
+                async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
                     async with client.stream("POST", f"{self.base_url}/chat/completions", json=payload, headers=headers) as resp:
                         if resp.status_code == 429:
                             body = (await resp.aread())[:200].decode("utf-8", errors="replace")
@@ -307,7 +307,7 @@ class AnthropicProvider(BaseProvider):
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
             resp = await client.post(f"{self.base_url}/v1/messages", json=payload, headers=headers)
             resp.raise_for_status()
             return resp.json()

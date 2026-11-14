@@ -44,7 +44,7 @@ Self-contained: Redline's code (commit `{sha}`) is **inside this notebook**. No 
 1. **Accelerator → GPU T4 x2**
 2. **Internet → On** (requires a phone-verified Kaggle account)
 
-Then **Run All**. It takes about 15–30 minutes. Cell 5 prints nothing until it finishes, which is normal.
+Then **Run All**. It takes about 15–30 minutes. Cell 3 should show both models on the GPU (`ollama ps` → `100% GPU`). Cell 5 prints nothing until it finishes, which is normal.
 At the end, download **`redline-report.html`** from the Output panel (`/kaggle/working`).
 
 Optional, for a better judge: *Add-ons → Secrets* → add `GROQ_API_KEY` (free at console.groq.com), then set `USE_GROQ_JUDGE = True` in cell 1.
@@ -75,7 +75,7 @@ print("Redline commit {sha} unpacked to", REDLINE, "| code version:", "NEW (fixe
 """),
         code("""
 # ── 3. Ollama on the GPU + the two models ────────────────────────────────
-import shutil, subprocess, time, urllib.request
+import json, os, shutil, subprocess, time, urllib.request
 def ollama_up():
     try:
         urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2); return True
@@ -85,7 +85,8 @@ if not shutil.which("ollama"):
     subprocess.run("apt-get -qq update && apt-get -qq install -y zstd pciutils lshw > /dev/null", shell=True)
     subprocess.run("curl -fsSL https://ollama.com/install.sh | sh", shell=True, check=True)
 if not ollama_up():
-    subprocess.Popen(["ollama", "serve"], stdout=open("ollama.log", "w"), stderr=subprocess.STDOUT)
+    subprocess.Popen(["ollama", "serve"], stdout=open("ollama.log", "w"), stderr=subprocess.STDOUT,
+                     env=dict(os.environ, OLLAMA_KEEP_ALIVE="-1"))  # keep models loaded between cases
     for _ in range(60):
         if ollama_up(): break
         time.sleep(1)
@@ -93,7 +94,17 @@ print("Ollama up:", ollama_up())
 for m in (BEFORE_MODEL, AFTER_MODEL):
     print("pulling", m)
     subprocess.run(["ollama", "pull", m], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-print(subprocess.run(["ollama", "list"], capture_output=True, text=True).stdout)
+# Warm-up: load each model onto the GPU now (the first load can take minutes) and keep it there.
+for m in (BEFORE_MODEL, AFTER_MODEL):
+    t = time.time()
+    req = urllib.request.Request("http://127.0.0.1:11434/api/generate", method="POST",
+        data=json.dumps({"model": m, "prompt": "Say OK.", "stream": False, "keep_alive": -1}).encode(),
+        headers={"Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=900).read()
+    print(f"{m} loaded and answering ({time.time() - t:.0f}s)")
+print(subprocess.run(["ollama", "ps"], capture_output=True, text=True).stdout)
+gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv"], capture_output=True, text=True).stdout
+print(gpu or "nvidia-smi not found: is the GPU accelerator on? (Settings → Accelerator → GPU T4 x2)")
 """),
         code("""
 # ── 4. Python dependencies ───────────────────────────────────────────────
@@ -111,7 +122,8 @@ env = dict(os.environ,
     DEMO_BEFORE_MODEL=BEFORE_MODEL, DEMO_AFTER_MODEL=AFTER_MODEL,
     DEMO_CASES=str(CASES), DEMO_PACKS=PACKS, DEMO_NO_OPEN="1",
     DEMO_OUT_DIR=os.path.join(WORK, "reports"),
-    LLM_PROVIDER="ollama", OLLAMA_BASE_URL="http://127.0.0.1:11434")
+    LLM_PROVIDER="ollama", OLLAMA_BASE_URL="http://127.0.0.1:11434",
+    LLM_TIMEOUT_SECONDS="300")   # per request; slow answers are retried too
 if USE_GROQ_JUDGE:
     try:
         from kaggle_secrets import UserSecretsClient
