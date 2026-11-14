@@ -192,9 +192,12 @@ def _heuristic_verdict(output: str, expected: dict) -> JudgeVerdict:
     unknown_tokens = ["i don't know", "i do not know", "insufficient information", "not enough information",
                       "cannot determine", "unknown", "i don't have information", "i don't have any information",
                       "i'm not aware", "i am not aware", "no information", "couldn't find", "could not find",
-                      "unable to verify", "can't verify", "cannot verify", "not able to verify", "no record"]
+                      "unable to verify", "can't verify", "cannot verify", "not able to verify", "no record",
+                      "does not exist", "doesn't exist", "not a real", "is fictional", "fictional city",
+                      "not aware of any", "no such"]
     if expected.get("should_use_unknown_if_missing_info"):
-        hallucination = not any(t in lowered for t in unknown_tokens)
+        # Declining an unanswerable question doesn't invent anything.
+        hallucination = not refusal and not any(t in lowered for t in unknown_tokens)
     else:
         hallucination = False
 
