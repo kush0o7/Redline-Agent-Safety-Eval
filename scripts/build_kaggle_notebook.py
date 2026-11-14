@@ -76,6 +76,12 @@ print("Redline commit {sha} unpacked to", REDLINE, "| code version:", "NEW (fixe
         code("""
 # ── 3. Ollama on the GPU + the two models ────────────────────────────────
 import json, os, shutil, subprocess, time, urllib.request
+if not shutil.which("nvidia-smi"):
+    raise SystemExit(
+        "NO GPU: this session is CPU-only, so the run would take many hours.\\n"
+        "Fix: right-hand panel → Session options → Accelerator → GPU T4 x2 "
+        "(if it's greyed out: verify your phone in Kaggle Settings, or you've used this week's GPU hours).\\n"
+        "The session restarts when you change it; then Run All again.")
 def ollama_up():
     try:
         urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2); return True
@@ -103,8 +109,7 @@ for m in (BEFORE_MODEL, AFTER_MODEL):
     urllib.request.urlopen(req, timeout=900).read()
     print(f"{m} loaded and answering ({time.time() - t:.0f}s)")
 print(subprocess.run(["ollama", "ps"], capture_output=True, text=True).stdout)
-gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv"], capture_output=True, text=True).stdout
-print(gpu or "nvidia-smi not found: is the GPU accelerator on? (Settings → Accelerator → GPU T4 x2)")
+print(subprocess.run(["nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv"], capture_output=True, text=True).stdout)
 """),
         code("""
 # ── 4. Python dependencies ───────────────────────────────────────────────
