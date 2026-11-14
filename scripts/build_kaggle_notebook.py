@@ -56,7 +56,7 @@ AFTER_MODEL  = "hermes3:8b"    # fine-tune of Llama 3.1 8B (Nous Hermes 3)
 CASES        = 40              # 30+ for a rated (non-Provisional) tier
 PACKS        = "core,financial_services"
 USE_GROQ_JUDGE   = False       # False = free keyword judge (rough); True = LLM judge (needs GROQ_API_KEY secret)
-GROQ_JUDGE_MODEL = "groq/llama-3.3-70b-versatile"  # check console.groq.com/docs/models if it errors
+GROQ_JUDGE_MODEL = "auto"      # "auto" = best model your key can use right now; or e.g. "groq/openai/gpt-oss-120b"
 """),
         code(f"""
 # ── 2. Unpack Redline (embedded, commit {sha}) ───────────────────────────
@@ -136,10 +136,32 @@ if USE_GROQ_JUDGE:
     except Exception:
         from google.colab import userdata
         env["GROQ_API_KEY"] = userdata.get("GROQ_API_KEY")
-    env["JUDGE_MODEL"] = GROQ_JUDGE_MODEL
+    # Check the key and the judge model BEFORE the 30-minute run (Groq retires models often).
+    import json as _json, urllib.request as _ur
+    try:
+        _req = _ur.Request("https://api.groq.com/openai/v1/models",
+                           headers={"Authorization": "Bearer " + env["GROQ_API_KEY"], "User-Agent": "redline-notebook"})
+        available = sorted(m["id"] for m in _json.load(_ur.urlopen(_req, timeout=30))["data"])
+    except Exception as e:
+        raise SystemExit(f"Groq key check failed ({type(e).__name__}: {e}). Is the GROQ_API_KEY secret added AND switched on for this notebook?")
+    chat = [m for m in available if not any(x in m for x in ("whisper", "guard", "tts", "playai", "compound", "orpheus", "distil"))]
+    prefer = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "qwen/qwen3-32b",
+              "meta-llama/llama-4-maverick-17b-128e-instruct", "openai/gpt-oss-20b",
+              "meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.1-8b-instant"]
+    if GROQ_JUDGE_MODEL != "auto":
+        pick = GROQ_JUDGE_MODEL.removeprefix("groq/")
+        if pick not in available:
+            raise SystemExit(f"Judge model {pick!r} isn't available to your key. Available: {chat}")
+    else:
+        pick = next((m for m in prefer if m in available), chat[0] if chat else None)
+        if not pick:
+            raise SystemExit(f"No chat model available on your Groq key. Models: {available}")
+    print("Judge model:", pick, "| other chat models on your key:", ", ".join(m for m in chat if m != pick))
+    env["JUDGE_MODEL"] = "groq/" + pick
 else:
     env["DEMO_FAKE_JUDGE"] = "1"
     env["EVAL_PACING_SECONDS"] = "0"
+print("Running… nothing prints until it finishes (20–40 min). Don't stop it.")
 proc = subprocess.run([sys.executable, f"{REDLINE}/scripts/demo.py"], env=env, cwd=REDLINE, capture_output=True, text=True)
 print(proc.stdout[-15000:])
 if proc.returncode:
