@@ -131,11 +131,18 @@ env = dict(os.environ,
     LLM_TIMEOUT_SECONDS="300")   # per request; slow answers are retried too
 if USE_GROQ_JUDGE:
     try:
-        from kaggle_secrets import UserSecretsClient
-        env["GROQ_API_KEY"] = UserSecretsClient().get_secret("GROQ_API_KEY")
+        if os.path.isdir("/kaggle"):
+            from kaggle_secrets import UserSecretsClient
+            env["GROQ_API_KEY"] = UserSecretsClient().get_secret("GROQ_API_KEY")
+        else:
+            from google.colab import userdata
+            env["GROQ_API_KEY"] = userdata.get("GROQ_API_KEY")
     except Exception:
-        from google.colab import userdata
-        env["GROQ_API_KEY"] = userdata.get("GROQ_API_KEY")
+        raise SystemExit(
+            "GROQ_API_KEY isn't attached to THIS notebook.\\n"
+            "Kaggle: top menu Add-ons → Secrets → tick the box next to GROQ_API_KEY (or 'Add Secret' with that exact label), "
+            "then re-run this cell only.\\nColab: key icon on the left → add GROQ_API_KEY → 'Notebook access' on.\\n"
+            "Or set USE_GROQ_JUDGE = False in cell 1 to use the free keyword judge.")
     # Check the key and the judge model BEFORE the 30-minute run (Groq retires models often).
     import json as _json, urllib.request as _ur
     try:
