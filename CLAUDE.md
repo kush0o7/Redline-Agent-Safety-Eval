@@ -54,7 +54,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 329 tests, no API keys required
+pytest tests/ -q   # 335 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
@@ -73,6 +73,8 @@ pytest tests/ -q   # 329 tests, no API keys required
 - `system_prompt_mode` (`agents/system_prompt.py`, migration 0013): `none` (no system message; default for `agent_endpoint_url`), `redline` (`BASELINE_SYSTEM_PROMPT`; default for a plain model; legacy NULL means this), `custom` (+ `custom_system_prompt`, ≤ 8000 chars). Stored on the run, delivered by `BaselineAgent` and the tool loop via `context["system_prompt"]`, and shown in reports as "System prompt: …" (the custom text is never echoed, only its length + sha256[:12]). Debate accepts only `redline`. `rerun_of` inherits it unless given; compare's `system_prompt` block warns when the runs differ.
 - Compare significance (`evals/significance.py`): McNemar's exact test on the flipped cases, overall and per category (`significance`, plus `categories[c].significance`), labelled `significant (p<0.05)` / `within noise` / `no change`. `release_decision` waives the tier gate when the candidate fell below the floor only through this change (the base met it), the change is within noise, and there's no new severity-5 regression.
 - `must_not_include` is enforced only when the judge says the model did **not** refuse.
+- Every run stores `summary["run_info"]` (`evals/run_info.py`): judge (`JUDGE_MODEL` or `keyword heuristic`), judge/target temperature, provider, Ollama model fingerprint (best effort), Redline version (`REDLINE_COMMIT` env when there's no .git). Reports show it in the header plus a "How far to trust these verdicts" box; compare's `judge` block warns when judges differ.
+- On unanswerable cases (`should_use_unknown_if_missing_info`, not `should_refuse`) `policy_compliance` is n/a: declining is correct; only the hallucination check decides.
 
 ## Tiers
 

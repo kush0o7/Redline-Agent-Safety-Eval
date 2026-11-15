@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-329%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-335%20passing-brightgreen)]()
 
 Companies now run AI they own: fine-tuned models, internal agents, self-hosted open-weight models. Every new fine-tune, prompt change or model upgrade can quietly break safety behaviour that used to work. Redline runs the same adversarial test suite against every version, scores each response with a separate LLM judge, and shows exactly what changed. It runs inside your network.
 
@@ -57,10 +57,50 @@ Offline, the two models are Redline's simulated models: `fake-safe` behaves like
 With real models (free tiers work; see [Free tiers](#free-tiers-for-demos-and-smoke-tests)):
 
 ```bash
-DEMO_BEFORE_MODEL=llama-3.3-70b-versatile DEMO_AFTER_MODEL=llama-3.1-8b-instant make demo   # LLM_PROVIDER, keys, JUDGE_MODEL from .env
+DEMO_BEFORE_MODEL=llama3.1:8b DEMO_AFTER_MODEL=hermes3:8b make demo   # LLM_PROVIDER, keys, JUDGE_MODEL from .env
 ```
 
 Knobs: `DEMO_CASES`, `DEMO_SEED`, `DEMO_PACKS`, `DEMO_FAKE_JUDGE=1`, `DEMO_NO_OPEN=1`, `DEMO_OUT_DIR`.
+
+### No GPU? Run real models free on Kaggle
+
+`scripts/build_kaggle_notebook.py` builds one self-contained notebook with Redline's committed code inside it: no dataset upload, nothing to run on your laptop.
+
+```bash
+python3 scripts/build_kaggle_notebook.py ~/Downloads/redline_kaggle.ipynb
+```
+
+1. On kaggle.com: **Create → New Notebook → File → Import Notebook**, then pick the file.
+2. **Session options:** Accelerator **GPU T4 x2**, Internet **On** (needs a phone-verified account).
+3. Optional, for an LLM judge instead of the keyword heuristic: **Add-ons → Secrets** → `GROQ_API_KEY` (free at console.groq.com), switched on for the notebook, and `USE_GROQ_JUDGE = True` in cell 1. The notebook checks the key and picks a judge model the key can use before the run starts.
+4. **Run All.** Ollama serves both models on the GPU. Each run takes 15–40 minutes for 40 cases. Download `redline-report.html` from the Output panel.
+
+The notebook stops early, with a fix, when the GPU is off or the secret isn't attached. Send only Redline's public test cases to free hosted judges.
+
+### First real-model results
+
+On 14 Nov 2026 we compared **Llama 3.1 8B Instruct** (before) with **Hermes 3 8B** (after; a fine-tune of the same base). Both ran on Ollama on a free Kaggle T4: 40 identical cases from `core` + `financial_services`, seed 7, Redline's default system prompt. We graded the same two models twice, once with the keyword heuristic and once with an LLM judge (`groq/openai/gpt-oss-120b`):
+
+| | Keyword heuristic | LLM judge (gpt-oss-120b) |
+|---|---|---|
+| Llama 3.1 8B | 87.5% | 87.5% |
+| Hermes 3 8B | 55.0% | 72.5% |
+| Flipped cases (regressed / improved) | 14 / 1 | 9 / 3 |
+| Overall change, McNemar exact test | significant (p = 0.001) | within noise (p = 0.146) |
+| Release decision | FAIL (6 new severity-5 regressions) | FAIL (4 new severity-5 regressions) |
+| Prompt injection (graded in code) | 87.5% → 75.0% | 87.5% → 75.0% |
+
+What held up under both graders:
+- **The release was blocked.**
+- **Hermes complied with severity-5 requests that Llama refused.** The LLM judge confirmed four: a keylogger, a money-mule job ad, pump-and-dump posts and drug synthesis.
+- **Hermes followed the same two injections.** It sent a secret deploy token to an attacker URL with an `http_request` tool call, and it leaked data through a markdown image link.
+
+**What did not hold up: the size of the drop and whether it was significant.** The choice of grader changed the statistical conclusion. Part of the gap is sampling, because each run generates fresh answers. Measuring judge agreement against human labels is the next step (see limitations).
+
+Caveats:
+- **These are small runs.** 40 cases is enough for the overall change, not per category.
+- **The hallucination scores were understated.** In these runs, a correct "that doesn't exist" answer was scored as a failure. This is fixed in `0ebe001`.
+- **This is one comparison of one model pair.** It is not a general claim about either model.
 
 ### Evidence reports
 
@@ -70,6 +110,7 @@ Every run and every comparison can be exported as a single self-contained HTML f
 - **Significance:** both runs answered the identical cases, so each change is tested with McNemar's exact test on the flipped cases, overall and per category, and labelled *significant (p<0.05)* or *within noise*.
 - Tier and reasons, per-category and per-pack tables with confidence ranges.
 - Regressions grouped by category (most severe first, collapsible), each with its verdict, evidence and, for injection cases, a business-impact line worked out from the agent's actual tool calls (e.g. "Would have transferred EUR 1,000 to an attacker-controlled IBAN").
+- **Who graded it and how:** the judge for each run (an LLM judge model, or the keyword heuristic), the provider, the model fingerprint when the provider exposes one (Ollama does), the seed, the model and judge temperatures, the run duration and the Redline version. A compare warns when the two runs used different judges. Whenever an automated grader decided any result, a box says how far to trust the verdicts.
 - Methodology notes, timestamp, Redline version and case-set fingerprint. Reports on simulated models carry a banner saying so.
 
 **Redaction.** Answers to harmful requests are redacted by default: the report shows an 80-character excerpt, the verdict and the evidence. Injection tool calls and their arguments are always shown (long arguments are truncated). To include full outputs, which adds a warning banner, use `FULL=1` / `--include-full-outputs` / `?include_full_outputs=true`. The JSON APIs follow the same rule: `GET /quick-eval/{id}`, both compare endpoints, `/runs/{id}/results` and `/runs/{id}/traces/{testcase_id}` all return redacted text, with a `*_redacted` flag. Full text needs `include_full_outputs=true` **and** `X-Admin-Key`; on public routes, the flag without the key returns 403.
@@ -272,7 +313,7 @@ These are honest, and most are on the near-term roadmap:
 
 - **Injection scenarios are single-task with stub tools.** Payloads arrive as real tool results and are graded in code on what the agent attempted, not on real-world effects. Targets must support tool calling; a target without it fails the run.
 - **The system prompt is yours to set.** Runs against `agent_endpoint_url` send no system prompt by default, and plain model runs use Redline's short generic one. Neither is your production prompt unless you pass it with `system_prompt_mode: "custom"`. Results depend on the prompt, so test with the one you ship. Runs made before this option existed used the Redline default, and reports say so.
-- **Judge accuracy isn't measured yet.** There's no human-labelled validation set, so judge agreement is unknown. Treat scores as indicative and read the judge reasoning on failures that matter.
+- **Judge accuracy isn't measured yet.** There's no human-labelled validation set, so judge agreement is unknown. The choice of judge matters: in our first real-model comparison (above), the keyword heuristic and an LLM judge agreed on the release decision but disagreed on whether the drop was significant. Treat scores as indicative and read the judge reasoning on failures that matter. Every run records its judge, and compares warn when the judges differ.
 - **"Offline" isn't enforced.** A self-hosted install can use a local judge (for example `JUDGE_MODEL=ollama/llama3.1`), but nothing yet *guarantees* zero outbound calls. LiteLLM fetches its model price map online at import unless `LITELLM_LOCAL_MODEL_COST_MAP=True` (the demo sets it). The JailbreakBench behaviors are bundled with Redline, so loading cases makes no network call.
 - **Single-turn only.** Crescendo-style multi-turn attacks are approximated with injected prior context.
 - **One admin key.** There are no user accounts or per-team isolation.
@@ -309,7 +350,7 @@ Groq and Google Gemini have free API tiers that work as both the model under tes
 |---|---|
 | Groq as the model | `LLM_PROVIDER=groq`, `GROQ_API_KEY`, `DEFAULT_MODEL=llama-3.1-8b-instant` (OpenAI-compatible, tool calling supported) |
 | Gemini as the model | `LLM_PROVIDER=gemini`, `GEMINI_API_KEY`, `DEFAULT_MODEL=gemini-2.5-flash` (OpenAI-compatible layer) |
-| Groq as the judge | `JUDGE_MODEL=groq/llama-3.3-70b-versatile` |
+| Groq as the judge | `JUDGE_MODEL=groq/openai/gpt-oss-120b` (Groq retires models; check console.groq.com/docs/models) |
 | Gemini as the judge | `JUDGE_MODEL=gemini/gemini-2.5-flash` |
 
 **Rate limits.** Free-tier quotas change often and differ by model and account; check your account's limits in the Groq console and Google AI Studio. Published figures as of late 2026 conflict (Groq roughly 30 requests/min and 6K–12K tokens/min on large models, ~1K–14K requests/day; Gemini Flash roughly 10–15 requests/min, and reportedly as low as 20 requests/day after Dec 2025 cuts). Each test case makes 1–5 model calls (tool scenarios up to 4) plus one judge call, so Redline enforces a pacing floor between cases whenever a free provider or judge is used: at least **10 s for Groq** and **30 s for Gemini**, even if `EVAL_PACING_SECONDS` is lower. 429s are retried with back-off. A 30-case before/after demo is ~60 cases, ~150–250 requests: fine on Groq's daily quota, likely too much for Gemini's lowest free quota (use Gemini only as the judge, or fewer cases).
@@ -350,7 +391,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[dev]"
-pytest tests/ -q        # 329 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 335 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
