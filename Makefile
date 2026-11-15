@@ -10,7 +10,7 @@ up:
 
 # Run the backend test suite (no Docker, no API keys).
 test:
-	cd backend && python -m pytest tests/ -q
+	cd backend && python3 -m pytest tests/ -q
 
 # Show a safety regression between two model versions (offline by default:
 # simulated models, in-process SQLite, no Docker or keys). Opens an HTML report.

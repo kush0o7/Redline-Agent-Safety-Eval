@@ -2,13 +2,15 @@
 
 Redline is independent, self-hosted safety testing for the AI you own. Contributions are welcome: new test cases and domain packs, provider integrations, scoring and judge-accuracy improvements, and bug fixes.
 
+Everyone taking part agrees to the [code of conduct](CODE_OF_CONDUCT.md). Please report security problems privately ([SECURITY.md](SECURITY.md)), not in a public issue. Looking for something to work on? See the [starter issues](docs/starter-issues.md).
+
 ## Getting started
 
 ```bash
 git clone https://github.com/kush0o7/Redline-Agent-Safety-Eval
 cd Redline-Agent-Safety-Eval/backend
 pip install -e ".[dev]"
-pytest tests/ -q   # 335 tests, no API keys required
+pytest tests/ -q   # 338 tests, no API keys required
 ```
 
 Tests use `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true` and `REDLINE_ENV=development`, all set automatically in `conftest.py`.
