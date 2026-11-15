@@ -1,6 +1,7 @@
 """Redline version string for reports: package version plus git commit when available."""
 from __future__ import annotations
 
+import os
 import subprocess
 from functools import lru_cache
 from importlib import metadata
@@ -20,4 +21,6 @@ def redline_version() -> str:
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         sha = ""
+    # Code unpacked without .git (the Kaggle notebook) passes its commit in the environment.
+    sha = sha or os.environ.get("REDLINE_COMMIT", "").strip()
     return f"{version}+{sha}" if sha else version

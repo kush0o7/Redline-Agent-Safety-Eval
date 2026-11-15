@@ -14,6 +14,7 @@ from app.evals.significance import ALPHA, TEST_NAME, paired_change
 from app.db.models import Run, RunResult, Testcase
 from app.evals.case_sets import case_set_for_run, compare_case_sets
 from app.evals.redaction import maybe_redact
+from app.evals.run_info import compare_judges
 from app.evals.release import TIER_RANK, injection_impact, release_decision, tier_rank
 from app.utils.tiers import load_tier_config, tier_category
 
@@ -24,6 +25,12 @@ def _rate(values: list) -> float | None:
     if not valid:
         return None
     return sum(1 for v in valid if v) / len(valid)
+
+
+def _duration(run: Run) -> float | None:
+    if run.started_at and run.finished_at:
+        return round((run.finished_at - run.started_at).total_seconds(), 1)
+    return None
 
 
 def run_brief(run: Run) -> dict:
@@ -50,6 +57,8 @@ def run_brief(run: Run) -> dict:
         "excluded_categories": list(run.excluded_categories or []),
         "system_prompt": describe_run(run),
         "decided_by": summary.get("decided_by", {}),
+        "run_info": summary.get("run_info") or {},
+        "duration_seconds": _duration(run),
     }
 
 
@@ -164,6 +173,7 @@ def build_comparison(db: Session, base_run: Run, candidate_run: Run, *, include_
         "packs": _group_deltas(base_summary.get("packs") or {}, cand_summary.get("packs") or {}),
         "case_set": case_set,
         "system_prompt": compare_system_prompts(base_brief, cand_brief),
+        "judge": compare_judges(base_brief.get("run_info"), cand_brief.get("run_info")),
     }
     if not common:
         out.update({"pass_rate_delta": None, "metrics": {}, "changed_testcases": [],

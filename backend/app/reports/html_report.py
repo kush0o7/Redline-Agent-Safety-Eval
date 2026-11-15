@@ -123,10 +123,42 @@ def _header(kind: str, briefs: list[dict], now: str) -> str:
     fps = " · ".join(f"<code>{_e((b.get('case_set_hash') or 'n/a')[:16])}</code>" for b in briefs)
     runs = " · ".join(f"<code>{_e(b['run_id'])}</code>" for b in briefs)
     prompts = " · ".join(_e((b.get("system_prompt") or {}).get("label") or "Redline default") for b in briefs)
+    judges = " · ".join(_e((b.get("run_info") or {}).get("judge") or "not recorded") for b in briefs)
+    details = "<br>".join(_run_details(label, b) for label, b in zip(_labels(briefs), briefs))
     return (f"<h1>Redline {kind}</h1>"
             f"<div class='meta'>Generated {_e(now)} · Redline {_e(redline_version())}<br>"
             f"Run(s): {runs}<br>Case-set fingerprint(s): {fps}<br>"
-            f"<span class='sysprompt'>System prompt: {prompts}</span></div>")
+            f"<span class='sysprompt'>System prompt: {prompts}</span><br>"
+            f"<span class='judge'>Graded by: <strong>{judges}</strong></span><br>"
+            f"<span class='rundetails'>{details}</span></div>")
+
+
+def _labels(briefs: list[dict]) -> tuple[str, ...]:
+    return ("Before", "After") if len(briefs) == 2 else ("Run",)
+
+
+def _run_details(label: str, b: dict) -> str:
+    """Reproducibility line: provider, model fingerprint, temperatures, duration, Redline version."""
+    info = b.get("run_info") or {}
+    if not info:
+        return f"{_e(label)}: run details not recorded (run predates them)"
+    parts = [f"provider {_e(info.get('provider'))}",
+             f"model {_e(b.get('model'))}" + (f" (fingerprint <code>{_e(info['model_fingerprint'])}</code>)" if info.get("model_fingerprint") else ""),
+             f"seed {_e(b.get('seed'))}",
+             f"model temperature {_e(info.get('target_temperature'))}",
+             f"judge temperature {_e(info.get('judge_temperature'))}"]
+    if b.get("duration_seconds") is not None:
+        parts.append(f"took {_e(_fmt_duration(b['duration_seconds']))}")
+    parts.append(f"Redline {_e(info.get('redline_version'))}")
+    return f"{_e(label)}: " + " · ".join(parts)
+
+
+def _fmt_duration(seconds: float) -> str:
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds} s"
+    m, s_ = divmod(seconds, 60)
+    return f"{m} min {s_} s" if m < 60 else f"{m // 60} h {m % 60} min"
 
 
 def _group_table(title: str, groups: dict) -> str:
@@ -166,7 +198,15 @@ def _decided_by_line(counts: dict) -> str:
     if not counts:
         return ""
     parts = ", ".join(f"{_decided(k)}: {v}" for k, v in sorted(counts.items()))
-    return f"<p class='meta'>How results were decided — {parts}</p>"
+    line = f"<p class='meta'>How results were decided — {parts}</p>"
+    graded = sum(v for k, v in counts.items() if k in ("judge", "heuristic"))
+    if graded:
+        line += ("<p class='warn trust'><strong>How far to trust these verdicts.</strong> "
+                 f"{graded} result(s) were decided by an automated grader (LLM judge or keyword heuristic) whose "
+                 "accuracy has <strong>not yet been measured against human labels</strong>, and a different grader can "
+                 "change the result. Check a sample of those cases by hand before relying on them. Results decided by "
+                 "<em>code check</em> come from what the agent actually did and don't depend on a grader.</p>")
+    return line
 
 
 def _excluded_note(briefs: list[dict]) -> str:
@@ -361,6 +401,8 @@ def render_comparison_report(db: Session, base_run: Run, candidate_run: Run, *, 
         warn = f"<p class='warn'><strong>Warning:</strong> {_e(cmp['case_set'].get('warning') or 'runs did not use identical cases')}</p>"
     if (cmp.get("system_prompt") or {}).get("warning"):
         warn += f"<p class='warn'><strong>System prompt differs.</strong> {_e(cmp['system_prompt']['warning'])}</p>"
+    if (cmp.get("judge") or {}).get("warning"):
+        warn += f"<p class='warn'><strong>Judge differs.</strong> {_e(cmp['judge']['warning'])}</p>"
     overall = (cmp.get("significance") or {}).get("overall")
     regs, imps = cmp["flipped"]["regressions"], cmp["flipped"]["improvements"]
     reasons = "".join(f"<li>{_e(r)}</li>" for r in c.get("reasons") or [])

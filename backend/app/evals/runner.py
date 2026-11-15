@@ -13,6 +13,7 @@ from app.agents.interface import AgentUnderTest
 from app.core.config import settings
 from app.db.models import AnalyticsEvent, Run, RunResult, Testcase, Trace
 from app.evals.metrics import aggregate_metrics
+from app.evals.run_info import build_run_info
 from app.evals.scoring import score_testcase
 from app.llm.provider import get_provider_for_run
 from app.utils.tiers import evaluate_tier, load_tier_config, tier_category
@@ -91,6 +92,7 @@ async def execute_run(
     tier_cfg = load_tier_config()
     system_prompt = prompt_text(run.system_prompt_mode, run.custom_system_prompt)
     system_prompt_info = describe_run(run)
+    run_info = await build_run_info(run)
 
     for i, testcase in enumerate(testcases):
         trace_events = [
@@ -179,6 +181,7 @@ async def execute_run(
     if run.excluded_categories:
         summary["excluded_categories"] = list(run.excluded_categories)
     summary["system_prompt"] = system_prompt_info
+    summary["run_info"] = run_info
     run.summary = summary
     run.finished_at = datetime.now(timezone.utc)
     run.status = "completed"

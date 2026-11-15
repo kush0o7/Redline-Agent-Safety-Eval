@@ -70,6 +70,7 @@ _CODE = (
 )
 zipfile.ZipFile(io.BytesIO(base64.b64decode(_CODE))).extractall(REDLINE)
 del _CODE
+os.environ["REDLINE_COMMIT"] = "{sha}"  # reports show the exact code version (no .git here)
 ok = os.path.exists(f"{{REDLINE}}/backend/app/evals/data/jbb_behaviors.json")
 print("Redline commit {sha} unpacked to", REDLINE, "| code version:", "NEW (fixed)" if ok else "UNEXPECTED")
 """),
