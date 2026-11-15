@@ -10,12 +10,15 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12"]
     env:
+      # The suite and CLI subprocesses read UTF-8 source files and reports.
+      PYTHONUTF8: "1"
       # Keep CI offline: no LiteLLM price-map download, fake provider + keyword judge (set in conftest.py).
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
     steps:
