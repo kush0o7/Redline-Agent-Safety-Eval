@@ -1,0 +1,52 @@
+name: Publish to PyPI
+
+# Push a tag like v0.2.0 to publish redline-evals. Uses PyPI trusted publishing (OIDC):
+# no API token is stored anywhere. The pending publisher on pypi.org must name this
+# repository, this workflow file (publish.yml) and the environment `pypi`.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tag matches the package version
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('backend/pyproject.toml','rb'))['project']['version'])")
+          echo "pyproject: $version, tag: ${GITHUB_REF_NAME}"
+          test "v$version" = "${GITHUB_REF_NAME}"
+      - name: Build the sdist and wheel
+        run: python -m pip install build && python -m build backend --outdir dist
+      - name: Smoke-test the wheel in a fresh venv
+        run: |
+          python -m venv /tmp/check
+          /tmp/check/bin/pip install dist/redline_evals-*.whl
+          cd /tmp && set +e; /tmp/check/bin/redline compare fake-safe fake-degraded --out /tmp/out > /tmp/out.txt; code=$?; set -e
+          cat /tmp/out.txt; test "$code" = 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/redline-evals/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

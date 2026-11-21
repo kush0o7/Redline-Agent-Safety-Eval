@@ -27,27 +27,16 @@ git push origin main
 
 - [ ] Wait for **Tests** on main to pass (including Windows and the cli-smoke job). If Windows fails, fix on a branch before publishing.
 
-## 3. Build and upload to PyPI (in a clean venv)
+## 3. Publish with trusted publishing (no tokens)
 
-```bash
-python3 -m venv /tmp/redline-release && source /tmp/redline-release/bin/activate
-pip install -U build twine
-cd backend && rm -rf dist build *.egg-info
-python -m build                       # dist/redline_evals-0.2.0.tar.gz + .whl
-twine check dist/*
-twine upload --repository testpypi dist/*   # optional dry run on test.pypi.org
-twine upload dist/*
-deactivate && cd ..
-```
+`.github/workflows/publish.yml` builds from `backend/`, smoke-tests the wheel and publishes when a `v*` tag is pushed. One-time setup on pypi.org → Your account → Publishing → "Add a new pending publisher": PyPI project name `redline-evals`, owner `kush0o7`, repository `Redline-Agent-Safety-Eval`, workflow `publish.yml`, environment `pypi`.
 
 ## 4. Tag the release
 
 ```bash
 git tag -a v0.2.0 -m "redline-evals 0.2.0: redline compare / scan / report / try"
-git push origin v0.2.0
+git push origin v0.2.0      # starts the Publish to PyPI workflow
 ```
-
-Then on GitHub: **Releases → Draft a new release → v0.2.0**. Write 3–5 plain lines on what's new (`redline compare / scan / report / try`, plain-English results, OpenRouter and Hugging Face models); attach nothing (PyPI has the files).
 
 ## 5. Check it like a stranger would
 
