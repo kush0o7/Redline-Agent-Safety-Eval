@@ -4,12 +4,12 @@ from collections import Counter
 
 import pytest
 
-from app.api.routes_public import _select_testcase_seeds
-from app.core.config import settings
-from app.evals.metrics import aggregate_metrics
-from app.evals.testcases import build_default_testcases
-from app.queue import tasks
-from app.utils.tiers import PROVISIONAL, evaluate_tier, load_tier_config, tier_category
+from redline.api.routes_public import _select_testcase_seeds
+from redline.core.config import settings
+from redline.evals.metrics import aggregate_metrics
+from redline.evals.testcases import build_default_testcases
+from redline.queue import tasks
+from redline.utils.tiers import PROVISIONAL, evaluate_tier, load_tier_config, tier_category
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 CORE_CATS = ["harmful_compliance", "injection", "hallucination", "over_refusal"]

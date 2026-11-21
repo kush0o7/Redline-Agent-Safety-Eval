@@ -33,7 +33,6 @@ import logging
 import os
 import secrets
 import sys
-import textwrap
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
@@ -72,26 +71,6 @@ def _configure(db_path: Path, real: bool) -> None:
     sys.path.insert(0, str(BACKEND))
 
 
-def _pct(v) -> str:
-    return "  —  " if v is None else f"{v * 100:5.1f}%"
-
-
-def _pts(v) -> str:
-    return "   —   " if v is None else f"{v * 100:+6.1f} pts"
-
-
-def _short(text, n=110) -> str:
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= n else text[: n - 1] + "…"
-
-
-def _answer_line(d: dict) -> str:
-    """Terminal view of a failed answer; answers to harmful requests stay redacted, as in the report."""
-    if d.get("should_refuse") and not str(d.get("candidate_answer") or "").startswith("[Model "):
-        return "[harmful content — redacted; see the report with FULL=1]"
-    return _short(d.get("candidate_answer"))
-
-
 def main() -> int:
     before = os.environ.get("DEMO_BEFORE_MODEL")
     after = os.environ.get("DEMO_AFTER_MODEL")
@@ -115,12 +94,13 @@ def main() -> int:
 
     from fastapi.testclient import TestClient
 
-    from app.core.config import settings
-    from app.db import session as db_session
-    from app.db.base import Base
-    from app.evals.runner import effective_pacing_seconds
-    from app.main import app
-    from app.queue import tasks
+    from redline.core.config import settings
+    from redline.db import session as db_session
+    from redline.db.base import Base
+    from redline.evals.runner import effective_pacing_seconds
+    from redline.local import format_comparison
+    from redline.main import app
+    from redline.queue import tasks
 
     Base.metadata.create_all(bind=db_session.engine)
     app.state.arq_pool = _InlinePool()
@@ -146,7 +126,7 @@ def main() -> int:
         if body["status"] != "completed":
             raise SystemExit(f"{label} run {body['status']}: {(body.get('summary') or {}).get('error')}")
         s = body["summary"]
-        print(f"  {s['passed']}/{s['total']} passed ({_pct(s['pass_rate']).strip()}), tier {body.get('tier')}")
+        print(f"  {s['passed']}/{s['total']} passed ({s['pass_rate'] * 100:.1f}%), tier {body.get('tier')}")
         return run_id
 
     base_id = run({"model": before, "testcase_count": cases, "packs": packs, "seed": seed,
@@ -154,44 +134,7 @@ def main() -> int:
     cand_id = run({"model": after, "rerun_of": base_id}, "after (same cases via rerun_of)")
 
     cmp = client.get(f"/quick-eval/{cand_id}/compare", params={"base_run_id": base_id}, headers=headers).json()
-    tc = cmp["tier_change"]
-    regs, imps = cmp["flipped"]["regressions"], cmp["flipped"]["improvements"]
-    if before.startswith("fake") or after.startswith("fake"):
-        print("\n  ⚠  Simulated models — illustrative results, not a measurement of any real model.")
-    print("\n" + "═" * 78)
-    print(f" SAFETY REGRESSION CHECK   {before}  →  {after}")
-    print("═" * 78)
-    print(f" Same cases:   {cmp['common_total']}   (identical case set: {cmp['case_set'].get('identical')})")
-    print(f" Pass rate:    {_pct(cmp['base_pass_rate'])}  →  {_pct(cmp['candidate_pass_rate'])}   ({_pts(cmp['pass_rate_delta']).strip()})")
-    print(f" Tier:         {tc['from']}  →  {tc['to']}   ({tc['direction']})")
-    print(f" Flipped:      {len(regs)} regressions · {len(imps)} improvements (of {cmp['common_total']} shared cases)")
-    sig = (cmp.get("significance") or {}).get("overall") or {}
-    if sig:
-        p = sig["p_value"]
-        print(f" Significance: {sig['label']}  ({'p<0.001' if p < 0.001 else f'p={p:.3f}'}, McNemar exact test)")
-    sp = cmp.get("system_prompt") or {}
-    print(f" System prompt: {sp.get('base')}  →  {sp.get('candidate')}")
-    rel = cmp["release"]
-    print(f"\n RELEASE DECISION: {rel['decision']} — {rel['reason']}")
-    if rel["top_risks"]:
-        print(" Top risks:")
-        for i, r in enumerate(rel["top_risks"], 1):
-            print(f"  {i}. {r['risk']}  ({r['cases']} case{'' if r['cases'] == 1 else 's'}, severity {r['severity']})")
-    print(f" Recommended action: {rel['recommended_action']}")
-    print("\n Per category                 before      after      change     significance")
-    for name, g in cmp["categories"].items():
-        b, c = g.get("base") or {}, g.get("candidate") or {}
-        label = (g.get("significance") or {}).get("label", "")
-        print(f"  {name:<26} {_pct(b.get('pass_rate'))}    {_pct(c.get('pass_rate'))}   {_pts(g.get('delta'))}   {label}")
-    if regs:
-        print(f"\n Cases that flipped pass → fail (showing {min(len(regs), 8)} of {len(regs)}, most severe first)")
-        for d in regs[:8]:
-            print(f"\n  ✗ {d['name']}  [{d['type']}, severity {d['severity']}, decided by {d['candidate_decided_by']}]")
-            print(textwrap.indent(f"prompt: {_short(d['prompt'])}\nanswer: {_answer_line(d)}", "      "))
-            if d.get("impact"):
-                print(f"      impact:   {_short(d['impact'])}")
-            if d.get("evidence"):
-                print(f"      evidence: {_short(d['evidence'][0])}")
+    print(format_comparison(cmp, before, after))
 
     report = client.get(f"/quick-eval/{cand_id}/compare/report", params={"base_run_id": base_id}, headers=headers).text
     out_dir.mkdir(parents=True, exist_ok=True)

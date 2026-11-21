@@ -4,10 +4,10 @@ import asyncio
 import httpx
 import pytest
 
-from app.core.config import settings
-from app.db.models import Run
-from app.evals import run_info
-from app.queue import tasks
+from redline.core.config import settings
+from redline.db.models import Run
+from redline.evals import run_info
+from redline.queue import tasks
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 pytestmark = pytest.mark.usefixtures("demo_reads")
@@ -37,7 +37,7 @@ def test_report_shows_grader_details_and_trust_note(client):
                    "model temperature 0.2", "judge temperature", "How far to trust these verdicts",
                    "not yet been measured against human labels"):
         assert needle in html, needle
-    assert "Judge differs" not in html
+    assert "Grader differs (judge)" not in html
     cmp = client.get(f"/quick-eval/{cand}/compare", params={"base_run_id": base}).json()
     assert cmp["judge"]["identical"] is True and cmp["judge"]["warning"] is None
     assert cmp["base"]["run_info"]["judge"] == run_info.KEYWORD_JUDGE
@@ -52,7 +52,7 @@ def test_compare_warns_when_judges_differ(client, db):
     cmp = client.get(f"/quick-eval/{cand}/compare", params={"base_run_id": base}).json()
     assert cmp["judge"]["identical"] is False and "different judges" in cmp["judge"]["warning"]
     html = client.get(f"/quick-eval/{cand}/compare/report", params={"base_run_id": base}).text
-    assert "Judge differs" in html and "gpt-oss-120b" in html
+    assert "Grader differs (judge)" in html and "gpt-oss-120b" in html
 
 
 def test_compare_judges_handles_legacy_runs():
@@ -82,7 +82,7 @@ async def test_ollama_fingerprint_is_best_effort(monkeypatch):
 
 
 def test_version_uses_commit_from_environment(monkeypatch):
-    from app import version
+    from redline import version
     monkeypatch.setattr(version.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError()))
     monkeypatch.setenv("REDLINE_COMMIT", "abc1234")
     version.redline_version.cache_clear()

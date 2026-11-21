@@ -1,41 +1,72 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "redline-backend"
-version = "0.1.0"
-description = "Redline agent safety evals"
+name = "redline-evals"
+version = "0.2.0"
+description = "Did your fine-tune get less safe? Run the same adversarial tests on two model versions and get a before/after safety report."
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
+keywords = ["ai-safety", "llm-evaluation", "red-teaming", "prompt-injection", "jailbreak", "fine-tuning"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Security",
+]
+# Core = the `redline` CLI + library: SQLite (via SQLAlchemy), httpx, pydantic, and the LLM judge.
 dependencies = [
-  "fastapi>=0.110",
-  "uvicorn>=0.29",
   "sqlalchemy>=2.0",
-  "alembic>=1.13",
   "pydantic>=2.6",
   "pydantic-settings>=2.2",
-  "psycopg[binary]>=3.1",
-  "redis>=5.0",
-  "arq>=0.26",
+  "httpx>=0.27",
   "litellm>=1.0",
   "instructor>=1.0",
-  "httpx>=0.27",
-  "boto3>=1.34",
-  "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]
+# The self-hosted API server, worker and UI (Postgres, Redis, ARQ, Bedrock).
+server = [
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "alembic>=1.13",
+  "psycopg[binary]>=3.1",
+  "redis>=5.0",
+  "arq>=0.26",
+  "boto3>=1.34",
+  "cryptography>=42.0",
+]
 test = [
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
   "httpx>=0.27",
 ]
-# Alias so `pip install -e ".[dev]"` (per CLAUDE.md) works too
+# `pip install -e "backend[server,dev]"` for working on the repo (the server tests need [server]).
 dev = [
+  "redline-evals[server]",
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
   "httpx>=0.27",
 ]
 
+[project.scripts]
+redline = "redline.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kush0o7/Redline-Agent-Safety-Eval"
+Issues = "https://github.com/kush0o7/Redline-Agent-Safety-Eval/issues"
+"Sample report" = "https://kush0o7.github.io/Redline-Agent-Safety-Eval/sample-report.html"
+
+[tool.setuptools.packages.find]
+include = ["redline*"]
+
+[tool.setuptools.package-data]
+redline = ["utils/*.toml", "evals/data/*.json", "db/alembic.ini", "db/alembic/*.py", "db/alembic/*.mako", "db/alembic/versions/*.py"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 asyncio_mode = "auto"
-
-[tool.setuptools.package-data]
-app = ["utils/*.toml", "evals/data/*.json"]

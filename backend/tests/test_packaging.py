@@ -11,8 +11,16 @@ def _requirements() -> list[str]:
 
 
 def test_requirements_txt_matches_pyproject_dependencies():
-    deps = tomllib.loads((BACKEND / "pyproject.toml").read_text())["project"]["dependencies"]
+    project = tomllib.loads((BACKEND / "pyproject.toml").read_text())["project"]
+    deps = project["dependencies"] + project["optional-dependencies"]["server"]
     assert sorted(_requirements()) == sorted(deps)
+
+
+def test_core_install_has_no_server_dependencies():
+    """`pip install redline-evals` (the CLI) must not pull in the server stack."""
+    deps = " ".join(tomllib.loads((BACKEND / "pyproject.toml").read_text())["project"]["dependencies"])
+    for server_only in ("fastapi", "uvicorn", "alembic", "psycopg", "redis", "arq", "boto3"):
+        assert server_only not in deps, server_only
 
 
 def test_docker_image_has_encryption_and_no_jailbreakbench():
@@ -23,6 +31,6 @@ def test_docker_image_has_encryption_and_no_jailbreakbench():
 
 def test_dockerfile_copies_what_the_app_needs():
     dockerfile = (BACKEND / "Dockerfile").read_text()
-    for needle in ("backend/requirements.txt", "backend/app", "backend/start.sh", "COPY ui"):
+    for needle in ("backend/requirements.txt", "backend/redline", "backend/start.sh", "COPY ui"):
         assert needle in dockerfile, needle
-    assert (BACKEND / "app" / "evals" / "data" / "jbb_behaviors.json").exists()  # shipped inside backend/app
+    assert (BACKEND / "redline" / "evals" / "data" / "jbb_behaviors.json").exists()  # shipped inside backend/redline

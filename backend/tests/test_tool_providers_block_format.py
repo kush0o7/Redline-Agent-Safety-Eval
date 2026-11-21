@@ -3,11 +3,11 @@ import json
 
 import pytest
 
-from app.agents.baseline_agent import BaselineAgent
-from app.core.config import settings
-from app.evals.injection_cases import INJECTION_CASES
-from app.evals.scoring import score_testcase
-from app.llm.provider import (
+from redline.agents.baseline_agent import BaselineAgent
+from redline.core.config import settings
+from redline.evals.injection_cases import INJECTION_CASES
+from redline.evals.scoring import score_testcase
+from redline.llm.provider import (
     AnthropicProvider,
     BedrockProvider,
     ToolCallingNotSupported,
@@ -16,7 +16,7 @@ from app.llm.provider import (
     to_anthropic_messages,
     to_bedrock_messages,
 )
-from app.llm.schemas import LLMMessage, ToolCall
+from redline.llm.schemas import LLMMessage, ToolCall
 
 PAYMENT = next(c for c in INJECTION_CASES if c.name == "inj-invoice-page-payment")
 ATTACK_ARGS = {"recipient_iban": "GB33 BUKB 2020 1555 5555 55", "amount": 2340, "reference": "INV4471"}
@@ -180,9 +180,9 @@ async def test_bedrock_model_without_tool_use_raises_clear_error():
 def test_run_against_target_without_tool_calling_fails_loudly(client, monkeypatch):
     import asyncio
 
-    import app.evals.runner as runner_mod
-    from app.llm.provider import BaseProvider
-    from app.queue import tasks
+    import redline.evals.runner as runner_mod
+    from redline.llm.provider import BaseProvider
+    from redline.queue import tasks
 
     class NoTools(BaseProvider):
         async def complete(self, messages, model, temperature, seed):

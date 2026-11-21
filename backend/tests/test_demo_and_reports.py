@@ -10,17 +10,17 @@ from pathlib import Path
 
 import pytest
 
-from app.agents.baseline_agent import BaselineAgent
-from app.core.config import settings
-from app.db.models import Run, RunResult
-from app.evals import runner as runner_mod
-from app.evals.injection_checks import evaluate_attack
-from app.evals.scoring import score_testcase
-from app.evals.testcases import build_default_testcases
-from app.llm import judge as judge_mod
-from app.llm.provider import FakeProvider, OpenAIProvider, get_provider
-from app.llm.schemas import LLMMessage
-from app.queue import tasks
+from redline.agents.baseline_agent import BaselineAgent
+from redline.core.config import settings
+from redline.db.models import Run, RunResult
+from redline.evals import runner as runner_mod
+from redline.evals.injection_checks import evaluate_attack
+from redline.evals.scoring import score_testcase
+from redline.evals.testcases import build_default_testcases
+from redline.llm import judge as judge_mod
+from redline.llm.provider import FakeProvider, OpenAIProvider, get_provider
+from redline.llm.schemas import LLMMessage
+from redline.queue import tasks
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 # These tests exercise run-id access to reports and compares, which only demo mode allows;
@@ -170,10 +170,10 @@ def test_demo_script_end_to_end_offline(tmp_path):
     env = _cli_env(tmp_path)
     out = subprocess.run([sys.executable, str(ROOT / "scripts" / "demo.py")], env=env, capture_output=True, text=True, timeout=300)
     assert out.returncode == 0, out.stderr[-2000:]
-    assert "SAFETY REGRESSION CHECK" in out.stdout and "Hardened  →" in out.stdout
-    assert "regressions · 0 improvements (of 30 shared cases)" in out.stdout
-    assert "RELEASE DECISION: FAIL" in out.stdout and "Recommended action: Block release" in out.stdout
-    assert "Simulated models — illustrative results" in out.stdout and "impact:" in out.stdout
+    assert "❌ Don't ship fake-degraded." in out.stdout and "safety grade: Hardened" in out.stdout
+    assert "got worse, 0 got better" in out.stdout and "Chance check (McNemar test)" in out.stdout
+    assert "What to do: Block release" in out.stdout
+    assert "Simulated models — illustrative results" in out.stdout and "Why it matters:" in out.stdout
     reports = list((tmp_path / "reports").glob("redline-demo-comparison-*.html"))
     assert reports and (tmp_path / "reports" / "redline-demo-latest.html").exists()
     assert "Regressions (pass → fail)" in reports[0].read_text()
@@ -236,9 +236,12 @@ def test_free_tier_providers(monkeypatch, name, key_attr, url_part, sends_seed):
 def test_judge_passes_free_tier_keys_explicitly(monkeypatch):
     monkeypatch.setattr(settings, "groq_api_key", "g")
     monkeypatch.setattr(settings, "gemini_api_key", "m")
-    for model, key in (("groq/llama-3.3-70b-versatile", "g"), ("gemini/gemini-2.5-flash", "m")):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    for model, want in (("groq/llama-3.3-70b-versatile", {"api_key": "g", "api_base": settings.groq_base_url.rstrip("/")}),
+                        ("gemini/gemini-2.5-flash", {"api_key": "m"})):
         monkeypatch.setattr(settings, "judge_model", model)
-        assert judge_mod.judge_credentials() == {"api_key": key}
+        assert judge_mod.judge_credentials() == want
     monkeypatch.setattr(settings, "judge_model", "gpt-4o-mini")
     assert judge_mod.judge_credentials() == {}
 
@@ -257,7 +260,8 @@ def test_judge_passes_free_tier_keys_explicitly(monkeypatch):
     monkeypatch.setattr(settings, "judge_model", "groq/llama-3.3-70b-versatile")
     monkeypatch.setattr(judge_mod, "_get_client", lambda: Client)
     asyncio.run(judge_mod.judge_response("p", "o", {"should_refuse": True}))
-    assert captured["api_key"] == "g" and captured["model"] == "groq/llama-3.3-70b-versatile"
+    assert captured["api_key"] == "g" and captured["model"] == "openai/llama-3.3-70b-versatile"
+    assert captured["api_base"] == "https://api.groq.com/openai/v1"
 
 
 def test_pacing_respects_free_tier_floors(monkeypatch):

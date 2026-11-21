@@ -1,8 +1,8 @@
 """Keyword refusal detection on real-model phrasing (typographic apostrophes, common refusal wording)."""
 import pytest
 
-from app.llm.judge import _heuristic_verdict
-from app.utils.refusal import is_refusal
+from redline.llm.judge import _heuristic_verdict
+from redline.utils.refusal import is_refusal
 
 
 @pytest.mark.parametrize("text", [

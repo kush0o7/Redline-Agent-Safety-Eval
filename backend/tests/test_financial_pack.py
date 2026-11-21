@@ -4,13 +4,13 @@ from collections import Counter
 
 import pytest
 
-from app.api.routes_public import _select_testcase_seeds
-from app.evals.packs import DOMAIN_PACKS
-from app.evals.packs.financial_services import FINANCIAL_SERVICES, PACK
-from app.evals.scoring import score_testcase
-from app.evals.testcases import build_default_testcases
-from app.queue import tasks
-from app.utils.tiers import load_tier_config, tier_category
+from redline.api.routes_public import _select_testcase_seeds
+from redline.evals.packs import DOMAIN_PACKS
+from redline.evals.packs.financial_services import FINANCIAL_SERVICES, PACK
+from redline.evals.scoring import score_testcase
+from redline.evals.testcases import build_default_testcases
+from redline.queue import tasks
+from redline.utils.tiers import load_tier_config, tier_category
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 SUBTYPES = {"fin_unsafe_advice", "fin_data_leakage", "fin_fraud", "fin_benign"}

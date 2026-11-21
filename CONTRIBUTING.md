@@ -9,8 +9,8 @@ Everyone taking part agrees to the [code of conduct](CODE_OF_CONDUCT.md). Please
 ```bash
 git clone https://github.com/kush0o7/Redline-Agent-Safety-Eval
 cd Redline-Agent-Safety-Eval/backend
-pip install -e ".[dev]"
-pytest tests/ -q   # 338 tests, no API keys required
+pip install -e ".[server,dev]"
+pytest tests/ -q   # 382 tests, no API keys required
 ```
 
 Tests use `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true` and `REDLINE_ENV=development`, all set automatically in `conftest.py`.
@@ -19,7 +19,7 @@ Tests use `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true` and `REDLINE_ENV=devel
 
 ### New test cases
 
-Add core cases to `backend/app/evals/testcases.py`. Industry cases belong in a domain pack: a module under `backend/app/evals/packs/` (see `financial_services.py`), registered in `packs/__init__.py`. Each pack is reported as its own tier category. Each testcase needs:
+Add core cases to `backend/redline/evals/testcases.py`. Industry cases belong in a domain pack: a module under `backend/redline/evals/packs/` (see `financial_services.py`), registered in `packs/__init__.py`. Each pack is reported as its own tier category. Each testcase needs:
 
 ```python
 TestcaseSeed(
@@ -45,15 +45,15 @@ The most needed additions:
 
 ### New LLM providers
 
-1. Add a class to `backend/app/llm/provider.py` implementing `BaseProvider.complete(messages, model, temperature, seed)`
+1. Add a class to `backend/redline/llm/provider.py` implementing `BaseProvider.complete(messages, model, temperature, seed)`
 2. Wire it in `get_provider()`
-3. Add env vars to `backend/app/core/config.py` (Settings class)
+3. Add env vars to `backend/redline/core/config.py` (Settings class)
 4. Document in `.env.example`
 5. Add a test in `backend/tests/`
 
 ### Scoring improvements
 
-`backend/app/evals/scoring.py` and `backend/app/llm/judge.py`. The StrongREJECT formula is already implemented. Useful directions:
+`backend/redline/evals/scoring.py` and `backend/redline/llm/judge.py`. The StrongREJECT formula is already implemented. Useful directions:
 - Better judge prompts with more calibrated rubrics
 - Domain-specific scoring (e.g. technical accuracy for code-generation agents)
 - Human-labelled judge validation data (planned format: JSONL of testcase, answer, human verdict)
@@ -73,15 +73,15 @@ The most needed additions:
 
 | File | Purpose |
 |------|---------|
-| `backend/app/evals/testcases.py` | All adversarial test cases |
-| `backend/app/evals/scoring.py` | Pass/fail logic and StrongREJECT scoring |
-| `backend/app/llm/judge.py` | Judge prompt and structured output parsing |
-| `backend/app/evals/metrics.py` | Wilson CI and category breakdown |
-| `backend/app/evals/runner.py` | Core eval loop (per-testcase execution + DB writes) |
-| `backend/app/llm/provider.py` | All LLM provider implementations |
-| `backend/app/core/security.py` | SSRF validation, encryption, rate limiting |
-| `backend/app/utils/tiers.py`, `tiers.default.toml` | Tier criteria and grading |
-| `backend/app/evals/packs/` | Domain test packs |
+| `backend/redline/evals/testcases.py` | All adversarial test cases |
+| `backend/redline/evals/scoring.py` | Pass/fail logic and StrongREJECT scoring |
+| `backend/redline/llm/judge.py` | Judge prompt and structured output parsing |
+| `backend/redline/evals/metrics.py` | Wilson CI and category breakdown |
+| `backend/redline/evals/runner.py` | Core eval loop (per-testcase execution + DB writes) |
+| `backend/redline/llm/provider.py` | All LLM provider implementations |
+| `backend/redline/core/security.py` | SSRF validation, encryption, rate limiting |
+| `backend/redline/utils/tiers.py`, `tiers.default.toml` | Tier criteria and grading |
+| `backend/redline/evals/packs/` | Domain test packs |
 | `ui/app.js` | Frontend logic (eval form, result rendering, demo banner) |
 
 ## Architecture notes

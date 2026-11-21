@@ -1,9 +1,9 @@
 import asyncio
 import uuid
 
-from app.db.models import Run, Testcase, RunResult
-from app.evals.generators import create_prompt_injection_cases
-from app.evals.runner import execute_run
+from redline.db.models import Run, Testcase, RunResult
+from redline.evals.generators import create_prompt_injection_cases
+from redline.evals.runner import execute_run
 
 
 def test_generators_deterministic():

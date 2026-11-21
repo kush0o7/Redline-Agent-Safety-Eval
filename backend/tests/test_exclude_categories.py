@@ -3,8 +3,8 @@ import asyncio
 
 import pytest
 
-from app.queue import tasks
-from app.utils.tiers import evaluate_tier
+from redline.queue import tasks
+from redline.utils.tiers import evaluate_tier
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 

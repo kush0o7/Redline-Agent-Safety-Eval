@@ -3,8 +3,8 @@ import asyncio
 import uuid
 from pathlib import Path
 
-from app.db.models import Run, Testcase, Trace
-from app.evals.runner import execute_run
+from redline.db.models import Run, Testcase, Trace
+from redline.evals.runner import execute_run
 
 
 def test_runner_passes_injected_content_through_unfiltered(db):
@@ -37,7 +37,7 @@ def test_runner_passes_injected_content_through_unfiltered(db):
 
 
 def test_guardrails_regex_module_removed():
-    app_dir = Path(__file__).resolve().parents[1] / "app"
+    app_dir = Path(__file__).resolve().parents[1] / "redline"
     assert not (app_dir / "agents" / "guardrails.py").exists()
     src = "\n".join(p.read_text() for p in app_dir.rglob("*.py") if "alembic" not in p.parts)
     assert "detect_injection" not in src and "INJECTION_PATTERNS" not in src and "injection_detected" not in src

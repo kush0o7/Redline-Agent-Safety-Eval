@@ -6,8 +6,8 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi import HTTPException
 
-from app.core.config import settings
-from app.core.security import validate_agent_url
+from redline.core.config import settings
+from redline.core.security import validate_agent_url
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 ROOT = Path(__file__).resolve().parents[2]
@@ -115,7 +115,7 @@ def test_init_env_refuses_to_overwrite(tmp_path):
 
 def _two_runs(client):
     import asyncio
-    from app.queue import tasks
+    from redline.queue import tasks
 
     a = client.post("/quick-eval", json={"testcase_count": 3, "model": "fake-safe"}, headers=HEADERS).json()
     asyncio.run(tasks.run_eval_task({}, a["run_id"]))

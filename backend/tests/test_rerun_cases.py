@@ -2,10 +2,10 @@
 import asyncio
 import uuid
 
-from app.db.models import Run, Testcase
-from app.queue import tasks
-from app.utils.hashing import case_set_hash
-from app.utils.hashing import testcase_content_hash as content_hash  # aliased: pytest collects test*
+from redline.db.models import Run, Testcase
+from redline.queue import tasks
+from redline.utils.hashing import case_set_hash
+from redline.utils.hashing import testcase_content_hash as content_hash  # aliased: pytest collects test*
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 
@@ -131,7 +131,7 @@ def test_rerun_refused_when_cases_changed(client, db):
 
 
 def test_rejected_quick_eval_leaves_no_orphan_project(client, db):
-    from app.db.models import Project
+    from redline.db.models import Project
 
     before = db.query(Project).count()
     resp = client.post("/quick-eval", json={"testcase_count": 5, "packs": ["nope"]}, headers=HEADERS)

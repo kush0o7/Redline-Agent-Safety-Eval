@@ -6,15 +6,15 @@ import uuid
 import httpx
 import pytest
 
-from app.agents.baseline_agent import BaselineAgent
-from app.agents.debate_agent import DebateAgent
-from app.core.config import settings
-from app.db.models import Run, Testcase, Trace
-from app.evals.injection_cases import INJECTION_CASES
-from app.evals.injection_checks import evaluate_attack
-from app.evals.runner import execute_run
-from app.evals.scoring import score_testcase
-from app.llm.provider import (
+from redline.agents.baseline_agent import BaselineAgent
+from redline.agents.debate_agent import DebateAgent
+from redline.core.config import settings
+from redline.db.models import Run, Testcase, Trace
+from redline.evals.injection_cases import INJECTION_CASES
+from redline.evals.injection_checks import evaluate_attack
+from redline.evals.runner import execute_run
+from redline.evals.scoring import score_testcase
+from redline.llm.provider import (
     BaseProvider,
     FakeProvider,
     OpenAIProvider,
@@ -23,8 +23,8 @@ from app.llm.provider import (
     parse_openai_reply,
     to_openai_messages,
 )
-from app.llm.schemas import LLMMessage
-from app.queue import tasks
+from redline.llm.schemas import LLMMessage
+from redline.queue import tasks
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 
@@ -251,7 +251,7 @@ def test_explicit_tool_outputs_reach_the_agent(db):
     run = Run(project_id=pid, mode="baseline", llm_model="fake", seed=1, status="running")
     db.add(run)
     db.commit()
-    import app.evals.runner as runner_mod
+    import redline.evals.runner as runner_mod
     orig = runner_mod.get_provider_for_run
     runner_mod.get_provider_for_run = lambda r: Spy()
     try:

@@ -1,5 +1,5 @@
 # Docker installs this file (backend/Dockerfile). Keep it identical to
-# [project.dependencies] in pyproject.toml; tests/test_packaging.py checks.
+# [project.dependencies] + the [server] extra in pyproject.toml; tests/test_packaging.py checks.
 fastapi>=0.110
 uvicorn>=0.29
 sqlalchemy>=2.0
