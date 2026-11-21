@@ -19,9 +19,9 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
-from app.db.base import Base
-from app.db import session as db_session
-from app.main import app
+from redline.db.base import Base
+from redline.db import session as db_session
+from redline.main import app
 
 
 @pytest.fixture()
@@ -58,7 +58,7 @@ def client(db):
 @pytest.fixture
 def demo_reads(monkeypatch):
     """Demo deployment: quick-eval runs are readable by run id without the admin key."""
-    from app.core.config import settings
+    from redline.core.config import settings
 
     monkeypatch.setattr(settings, "redline_env", "demo")
     monkeypatch.setattr(settings, "require_eval_auth_override", None)

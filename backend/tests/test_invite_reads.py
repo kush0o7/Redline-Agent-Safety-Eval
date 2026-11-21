@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.core.config import settings
-from app.db.models import InviteToken, Run
-from app.queue import tasks
+from redline.core.config import settings
+from redline.db.models import InviteToken, Run
+from redline.queue import tasks
 
 ADMIN = {"X-Admin-Key": "test-key-0123456789abcdef"}
 

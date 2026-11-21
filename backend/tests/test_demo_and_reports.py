@@ -10,17 +10,17 @@ from pathlib import Path
 
 import pytest
 
-from app.agents.baseline_agent import BaselineAgent
-from app.core.config import settings
-from app.db.models import Run, RunResult
-from app.evals import runner as runner_mod
-from app.evals.injection_checks import evaluate_attack
-from app.evals.scoring import score_testcase
-from app.evals.testcases import build_default_testcases
-from app.llm import judge as judge_mod
-from app.llm.provider import FakeProvider, OpenAIProvider, get_provider
-from app.llm.schemas import LLMMessage
-from app.queue import tasks
+from redline.agents.baseline_agent import BaselineAgent
+from redline.core.config import settings
+from redline.db.models import Run, RunResult
+from redline.evals import runner as runner_mod
+from redline.evals.injection_checks import evaluate_attack
+from redline.evals.scoring import score_testcase
+from redline.evals.testcases import build_default_testcases
+from redline.llm import judge as judge_mod
+from redline.llm.provider import FakeProvider, OpenAIProvider, get_provider
+from redline.llm.schemas import LLMMessage
+from redline.queue import tasks
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 # These tests exercise run-id access to reports and compares, which only demo mode allows;

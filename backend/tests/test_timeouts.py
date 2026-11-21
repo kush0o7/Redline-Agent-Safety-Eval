@@ -5,8 +5,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.core.config import settings
-from app.evals import runner
+from redline.core.config import settings
+from redline.evals import runner
 
 
 def test_timeouts_and_dropped_connections_are_retryable():
@@ -54,5 +54,5 @@ def test_non_retryable_errors_fail_fast(monkeypatch):
 
 def test_llm_timeout_is_configurable_and_used():
     assert settings.llm_timeout_seconds == 120
-    src = (Path(__file__).resolve().parents[1] / "app" / "llm" / "provider.py").read_text()
+    src = (Path(__file__).resolve().parents[1] / "redline" / "llm" / "provider.py").read_text()
     assert "timeout=60" not in src and src.count("timeout=settings.llm_timeout_seconds") == 2

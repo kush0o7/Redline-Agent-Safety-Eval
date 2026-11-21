@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 
-from app.queue import tasks
+from redline.queue import tasks
 
 
 def _run_task(run_id: str) -> None:

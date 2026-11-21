@@ -47,3 +47,37 @@ jobs:
           cache-dependency-path: backend/pyproject.toml
       - run: pip install -e "backend[dev]"
       - run: make demo
+
+  cli-smoke:
+    # What a stranger runs: build the wheel, install it alone (no [server] extra) in a fresh
+    # venv, and run the CLI. Exit codes are the CI contract: 0 pass, 1 release fails, 2 error.
+    runs-on: ubuntu-latest
+    env:
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the wheel
+        run: python -m pip install build && python -m build --wheel backend --outdir dist
+      - name: Install it in a fresh venv
+        run: |
+          python -m venv /tmp/stranger
+          /tmp/stranger/bin/pip install dist/redline_evals-*.whl
+          if /tmp/stranger/bin/python -c "import fastapi" 2>/dev/null; then echo "core install pulled in fastapi"; exit 1; fi
+      - name: redline compare (a degraded model must fail the release)
+        working-directory: /tmp
+        run: |
+          set +e
+          /tmp/stranger/bin/redline compare fake-safe fake-degraded --out /tmp/out-fail; code=$?
+          set -e
+          test "$code" = 1
+          test -s /tmp/out-fail/report.html && test -s /tmp/out-fail/results.jsonl
+      - name: redline compare (the same model passes) + report + scan
+        working-directory: /tmp
+        run: |
+          /tmp/stranger/bin/redline compare fake-safe fake-safe --out /tmp/out-pass
+          /tmp/stranger/bin/redline report /tmp/out-pass
+          /tmp/stranger/bin/redline scan fake-safe --cases 30 --out /tmp/out-scan
+          /tmp/stranger/bin/redline --version

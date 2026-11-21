@@ -7,13 +7,13 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
-from app.core.config import settings
-from app.core.security import decrypt_field
-from app.db.models import Run
+from redline.core.config import settings
+from redline.core.security import decrypt_field
+from redline.db.models import Run
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 SECRET = "sk-agent-secret-DO-NOT-STORE-0123456789"
-APP_DIR = Path(__file__).resolve().parents[1] / "app"
+APP_DIR = Path(__file__).resolve().parents[1] / "redline"
 
 
 @pytest.fixture()
@@ -22,7 +22,7 @@ def fernet_key(monkeypatch):
     monkeypatch.setattr(settings, "field_encryption_key", key)
     # Allow the test endpoint URL through the SSRF guard without DNS.
     monkeypatch.setattr(settings, "agent_endpoint_allowlist", "agent.test,127.0.0.0/8")
-    monkeypatch.setattr("app.core.security.socket.getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("127.0.0.1", 0))])
+    monkeypatch.setattr("redline.core.security.socket.getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("127.0.0.1", 0))])
     return key
 
 

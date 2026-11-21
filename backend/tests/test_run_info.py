@@ -4,10 +4,10 @@ import asyncio
 import httpx
 import pytest
 
-from app.core.config import settings
-from app.db.models import Run
-from app.evals import run_info
-from app.queue import tasks
+from redline.core.config import settings
+from redline.db.models import Run
+from redline.evals import run_info
+from redline.queue import tasks
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 pytestmark = pytest.mark.usefixtures("demo_reads")
@@ -82,7 +82,7 @@ async def test_ollama_fingerprint_is_best_effort(monkeypatch):
 
 
 def test_version_uses_commit_from_environment(monkeypatch):
-    from app import version
+    from redline import version
     monkeypatch.setattr(version.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError()))
     monkeypatch.setenv("REDLINE_COMMIT", "abc1234")
     version.redline_version.cache_clear()

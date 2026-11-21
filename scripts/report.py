@@ -57,9 +57,9 @@ def main(argv: list[str] | None = None) -> int:
 
     import uuid
 
-    from app.db import session as db_session
-    from app.db.models import Run
-    from app.reports.html_report import render_comparison_report, render_run_report
+    from redline.db import session as db_session
+    from redline.db.models import Run
+    from redline.reports.html_report import render_comparison_report, render_run_report
 
     def load(run_id: str) -> Run:
         try:

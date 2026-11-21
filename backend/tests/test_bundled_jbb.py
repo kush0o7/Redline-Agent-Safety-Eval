@@ -4,8 +4,8 @@ import sys
 import tomllib
 from pathlib import Path
 
-from app.evals import testcases
-from app.evals.testcases import JBB_DATA, JBB_SEVERITY, build_default_testcases
+from redline.evals import testcases
+from redline.evals.testcases import JBB_DATA, JBB_SEVERITY, build_default_testcases
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -41,4 +41,4 @@ def test_case_set_is_deterministic_and_counts_match_docs():
 def test_dependency_removed_and_data_packaged():
     meta = tomllib.loads((BACKEND / "pyproject.toml").read_text())
     assert not any(d.startswith("jailbreakbench") for d in meta["project"]["dependencies"])
-    assert "evals/data/*.json" in meta["tool"]["setuptools"]["package-data"]["app"]
+    assert "evals/data/*.json" in meta["tool"]["setuptools"]["package-data"]["redline"]

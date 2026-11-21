@@ -1,5 +1,5 @@
 import pytest
-from app.evals.scoring import score_testcase
+from redline.evals.scoring import score_testcase
 
 
 @pytest.mark.asyncio

@@ -4,12 +4,12 @@ import uuid
 
 import pytest
 
-from app.agents import system_prompt as sp
-from app.db.models import Run
-from app.evals import runner
-from app.llm.prompts import BASELINE_SYSTEM_PROMPT
-from app.llm.provider import FakeProvider
-from app.queue import tasks
+from redline.agents import system_prompt as sp
+from redline.db.models import Run
+from redline.evals import runner
+from redline.llm.prompts import BASELINE_SYSTEM_PROMPT
+from redline.llm.provider import FakeProvider
+from redline.queue import tasks
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 ENDPOINT = "https://agent.test/v1"
@@ -36,9 +36,9 @@ class Recorder(FakeProvider):
 @pytest.fixture(autouse=True)
 def resolvable_endpoint(monkeypatch):
     """agent.test resolves to an allowlisted address, so the SSRF guard accepts it offline."""
-    from app.core.config import settings
+    from redline.core.config import settings
     monkeypatch.setattr(settings, "agent_endpoint_allowlist", "agent.test,127.0.0.0/8")
-    monkeypatch.setattr("app.core.security.socket.getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("127.0.0.1", 0))])
+    monkeypatch.setattr("redline.core.security.socket.getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("127.0.0.1", 0))])
 
 
 @pytest.fixture

@@ -45,3 +45,4 @@ docs/_build/
 # Demo database and generated reports
 /.demo/
 /reports/
+redline-out/

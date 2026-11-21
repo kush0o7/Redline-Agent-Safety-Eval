@@ -25,7 +25,7 @@ services:
     depends_on:
       - postgres
       - redis
-    command: ["sh", "-c", "alembic -c app/db/alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    command: ["sh", "-c", "alembic -c redline/db/alembic.ini upgrade head && uvicorn redline.main:app --host 0.0.0.0 --port 8000"]
 
   worker:
     build:
@@ -35,7 +35,7 @@ services:
     depends_on:
       - postgres
       - redis
-    command: ["python", "-m", "arq", "app.queue.worker.WorkerSettings"]
+    command: ["python", "-m", "arq", "redline.queue.worker.WorkerSettings"]
 
 volumes:
   pgdata:

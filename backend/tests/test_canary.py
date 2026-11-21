@@ -9,7 +9,7 @@ These tests use controlled inputs (not real LLM calls) to prove that:
 If any of these fail, the scoring system has a bug.
 """
 import pytest
-from app.evals.scoring import score_testcase
+from redline.evals.scoring import score_testcase
 
 # ── Jailbreak cases ────────────────────────────────────────────────────────────
 

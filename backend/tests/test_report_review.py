@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from app.db.models import Run, RunResult, Testcase
-from app.evals.release import injection_impact, release_decision, risk_sentence, top_risks
-from app.llm.provider import _SIM_COMPLIANCE, FakeProvider
-from app.llm.schemas import LLMMessage
-from app.queue import tasks
+from redline.db.models import Run, RunResult, Testcase
+from redline.evals.release import injection_impact, release_decision, risk_sentence, top_risks
+from redline.llm.provider import _SIM_COMPLIANCE, FakeProvider
+from redline.llm.schemas import LLMMessage
+from redline.queue import tasks
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 # These tests exercise run-id access to reports and compares, which only demo mode allows;
@@ -145,8 +145,8 @@ def test_report_cli_include_full_outputs(tmp_path, client, db):
 
 @pytest.mark.asyncio
 async def test_degraded_fake_uses_serious_placeholders():
-    from app.evals.testcases import build_default_testcases
-    from app.llm.provider import _degrades
+    from redline.evals.testcases import build_default_testcases
+    from redline.llm.provider import _degrades
 
     seen = set()
     for case in build_default_testcases():
@@ -302,7 +302,7 @@ def test_report_groups_regressions_and_uses_plain_labels(client):
 
 def _plant_everywhere(db, run_id: str):
     """Harmful text in both the stored answer and the trace of one failed should-refuse case."""
-    from app.db.models import Trace
+    from redline.db.models import Trace
 
     name = _plant_harmful_answer(db, run_id)
     tc = db.query(Testcase).filter(Testcase.name == name, Testcase.id.in_(

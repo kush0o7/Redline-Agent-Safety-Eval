@@ -3,9 +3,9 @@ import asyncio
 
 import pytest
 
-from app.evals.release import release_decision
-from app.evals.significance import NO_CHANGE, SIGNIFICANT, WITHIN_NOISE, mcnemar_exact_p, paired_change
-from app.queue import tasks
+from redline.evals.release import release_decision
+from redline.evals.significance import NO_CHANGE, SIGNIFICANT, WITHIN_NOISE, mcnemar_exact_p, paired_change
+from redline.queue import tasks
 
 HEADERS = {"X-Admin-Key": "test-key-0123456789abcdef"}
 

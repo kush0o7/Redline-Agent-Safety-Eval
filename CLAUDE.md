@@ -13,14 +13,16 @@ Positioning to keep consistent in all docs and UI copy: vendor-neutral, runs ful
 ## Quick orientation
 
 ```
-backend/app/
+backend/redline/   (Python package `redline`, distribution `redline-evals`; was `app`)
+  cli.py       the `redline` CLI (compare / scan / report); local.py (in-process SQLite store,
+               answer cache, runs, terminal summary); models.py (model strings, Ollama checks, judge choice)
   agents/      baseline_agent.py, debate_agent.py,
                tools.py (stub tools), tool_loop.py (tool-result scenarios)
   api/         routes_evals.py, routes_runs.py (incl. /runs/compare), routes_testcases.py,
                routes_public.py (quick-eval, badge, leaderboard, admin), routes_health.py
   core/        config.py (Settings), security.py (auth, SSRF guard + allowlist, rate limit, Fernet)
   db/          models.py (Project, Testcase[pack], Run, RunResult, Trace, InviteToken, AnalyticsEvent)
-  evals/       runner.py, scoring.py, testcases.py (core), metrics.py, packs/ (domain packs)
+  evals/       runner.py, sampling.py (stratified sampling), scoring.py, testcases.py (core), metrics.py, packs/ (domain packs)
   llm/         provider.py (OpenAI/Anthropic/Bedrock/Ollama/Fake), judge.py, prompts.py
   queue/       tasks.py (ARQ task), worker.py
   utils/       tiers.py + tiers.default.toml (tier criteria), refusal.py
@@ -53,8 +55,8 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 
 ```bash
 cd backend
-pip install -e ".[dev]"
-pytest tests/ -q   # 338 tests, no API keys required
+pip install -e ".[server,dev]"
+pytest tests/ -q   # 363 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
@@ -101,6 +103,15 @@ A run with fewer than 30 cases, or fewer than 5 in any reported category, is `Pr
 6. There's no CI workflow, and `FIELD_ENCRYPTION_KEY` isn't required in production yet.
 
 Out of scope for now: accounts/multi-tenancy, compliance PDF export, multi-turn attacks.
+
+## CLI (Light Mode, ADR-014)
+
+- `pip install redline-evals` installs the CLI + library only (SQLAlchemy/SQLite, httpx, pydantic, LiteLLM + instructor for the judge). The server stack is the `[server]` extra; `[dev]` includes it. `tests/test_packaging.py` checks the core has no server dependency and `requirements.txt` = core + server; `tests/test_cli.py::test_cli_never_imports_the_server_stack` checks the CLI never imports FastAPI/ARQ/etc.
+- `redline compare A B` = a seeded sample for A, then the exact same rows for B (`local.rerun`, like `rerun_of`), `build_comparison`, the HTML report. Exit codes 0 pass / 1 release fails / 2 error or interrupted.
+- `--out` (default `./redline-out`) holds `redline.db`, `state.json` (job key → run IDs, for resume), `report.html`, `results.jsonl` (redacted like reports), `summary.json`.
+- `execute_run` hooks (keyword-only, server uses the defaults): `provider`, `run_info`, `concurrency`, `pacing_seconds`, `answer_cache`, `on_progress`. It skips cases that already have a result for the run (resume). `generate_answers` fills the cache first so a local judge isn't swapped in and out per case.
+- Default judge: a pulled Ollama model from `models.LOCAL_JUDGE_PREFERENCE` that isn't under test (same family = excluded), else keyword rules with a loud warning. An Ollama judge goes through Ollama's OpenAI-compatible `/v1` in instructor JSON mode (`judge.judge_model_id`, `judge_credentials`).
+- `local.bootstrap()` must run before anything imports `redline.core.config`; it sets throwaway in-process values for the server-only required settings (no admin key needed locally).
 
 ## MCP server (Claude Code integration)
 
