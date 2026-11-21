@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -248,6 +249,17 @@ def _write_scan(out: Path, store, run_id, details: bool = False) -> int:
     return EXIT_PASS if passed else EXIT_FAIL
 
 
+STAR_URL = "github.com/kush0o7/Redline-Agent-Safety-Eval"
+
+
+def print_star_hint(args) -> None:
+    """One dim line asking for a star, only for a person at a terminal (never in CI or pipes) and not with --quiet."""
+    if getattr(args, "quiet", False) or not sys.stdout.isatty():
+        return
+    dim, reset = ("", "") if os.environ.get("NO_COLOR") else ("\033[2m", "\033[0m")
+    print(f"\n{dim}⭐ Helpful? Star Redline: {STAR_URL}{reset}")
+
+
 def _print_files(out: Path) -> None:
     print("\n" + "─" * 78)
     print(f" Report:  {out / 'report.html'}")
@@ -300,7 +312,10 @@ def cmd_compare(args) -> int:
     code, out, store, runs = _start(args, specs, "compare")
     if code is not None:
         return code
-    return _write_compare(out, store, runs[0], runs[1], specs, details=args.details)
+    code = _write_compare(out, store, runs[0], runs[1], specs, details=args.details)
+    if not getattr(args, "from_try", False):  # redline try prints its own ending
+        print_star_hint(args)
+    return code
 
 
 def cmd_scan(args) -> int:
@@ -353,6 +368,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("before", help="the current model, e.g. ollama/llama3.1")
     p.add_argument("after", help="the new version, e.g. ollama/hermes3")
     common(p)
+    p.add_argument("--quiet", action="store_true", help="no closing hint lines")
     p.set_defaults(func=cmd_compare)
 
     p = sub.add_parser("scan", help="test one model against the tier criteria")

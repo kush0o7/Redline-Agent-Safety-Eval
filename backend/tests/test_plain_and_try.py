@@ -242,3 +242,26 @@ def test_try_maps_a_rejected_key_and_offline_errors(monkeypatch):
     monkeypatch.setattr(httpx, "get", offline)
     with pytest.raises(ModelError, match="Are you online"):
         try_cmd.pick_models("groq", "k")
+
+
+# ── the star hint ──
+
+@pytest.mark.parametrize("tty,quiet,shown", [(True, False, True), (True, True, False), (False, False, False)])
+def test_star_hint_only_for_a_person_at_a_terminal(tmp_path, monkeypatch, capsys, tty, quiet, shown):
+    monkeypatch.setattr("sys.stdout.isatty", lambda: tty)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    args = ["compare", "fake-safe", "fake-degraded", "--cases", "30", "--out", str(tmp_path)] + (["--quiet"] if quiet else [])
+    assert cli.main(args) == cli.EXIT_FAIL
+    out = capsys.readouterr().out
+    assert ("Star Redline: github.com/kush0o7/Redline-Agent-Safety-Eval" in out) is shown
+    assert "Star" not in capsys.readouterr().err
+
+
+def test_star_hint_comes_once_at_the_end_of_redline_try(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr(try_cmd, "key_value", lambda env: "gsk_test" if env == "GROQ_API_KEY" else None)
+    monkeypatch.setattr(try_cmd, "pick_models", lambda provider, key: ("fake-safe", "fake-degraded", "keyword"))
+    monkeypatch.setattr(try_cmd.webbrowser, "open", lambda *a, **k: None)
+    assert cli.main(["try", "--out", str(tmp_path), "--no-open"]) == cli.EXIT_FAIL
+    out = capsys.readouterr().out
+    assert out.count("Star Redline") == 1 and out.rstrip().endswith("Redline-Agent-Safety-Eval\x1b[0m")

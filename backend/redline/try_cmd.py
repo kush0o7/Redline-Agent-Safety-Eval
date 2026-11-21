@@ -129,11 +129,13 @@ def cmd_try(args) -> int:
     print(f"  {TRY_CASES} tests, short answers. Usually 2-3 minutes.\n")
     run_args = argparse.Namespace(before=before, after=after, cases=TRY_CASES, packs="core", seed=args.seed,
                                   judge=judge, out=args.out, concurrency=2, no_cache=False, details=args.details,
-                                  fast=True, max_tokens=TRY_MAX_TOKENS)
+                                  fast=True, max_tokens=TRY_MAX_TOKENS, from_try=True)
     code = cli.cmd_compare(run_args)
     report = Path(args.out) / "report.html"
     if code in (cli.EXIT_PASS, cli.EXIT_FAIL) and report.exists():
-        print("\n  Next: test your own model →  redline compare ollama/your-model-v1 ollama/your-model-v2")
+        if not args.quiet:
+            print("\n  Next: test your own model →  redline compare ollama/your-model-v1 ollama/your-model-v2")
+        cli.print_star_hint(args)
         if not args.no_open and sys.stdout.isatty():
             webbrowser.open(report.resolve().as_uri())
     return code
@@ -146,4 +148,5 @@ def add_try_parser(sub) -> None:
     p.add_argument("--seed", type=int, default=7, help="which 10 tests to sample (default 7)")
     p.add_argument("--no-open", action="store_true", help="don't open the report in a browser")
     p.add_argument("--details", action="store_true", help="show technical details")
+    p.add_argument("--quiet", action="store_true", help="no closing hint lines")
     p.set_defaults(func=cmd_try)
