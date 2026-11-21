@@ -27,6 +27,6 @@ Link in the first comment.
 ## First comment
 
 ```
-Try it in 2 minutes, no downloads: pip install redline-evals && redline try
+Try it in about 90 seconds, no downloads: pip install redline-evals && redline try
 https://github.com/kush0o7/Redline-Agent-Safety-Eval
 ```
