@@ -5,6 +5,8 @@
     anthropic/claude-haiku-4-5          ANTHROPIC_API_KEY
     groq/llama-3.1-8b-instant           GROQ_API_KEY   (free tier: public test cases only)
     gemini/gemini-2.0-flash             GEMINI_API_KEY (free tier: public test cases only)
+    openrouter/google/gemma-4-31b-it:free  OPENROUTER_API_KEY (":free" models: demos only)
+    hf/meta-llama/Llama-3.1-8B-Instruct HF_TOKEN (Hugging Face Inference Providers)
     http://localhost:8000/v1#my-model   any OpenAI-compatible server (key: REDLINE_ENDPOINT_KEY)
     fake-safe / fake-degraded           simulated models, offline (illustrative only)
 """
@@ -16,8 +18,27 @@ from typing import Sequence
 
 import httpx
 
-PROVIDERS = ("ollama", "openai", "anthropic", "groq", "gemini")
-_KEY_ENV = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY"}
+PROVIDERS = ("ollama", "openai", "anthropic", "groq", "gemini", "openrouter", "hf")
+_KEY_ENV = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY", "hf": "HF_TOKEN"}
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+HF_BASE_URL = "https://router.huggingface.co/v1"
+FREE_TIER_LINE = "Free tiers may keep your prompts. Use for demos only, not private data."
+
+
+def key_value(env: str) -> str | None:
+    """A provider key from the environment or ./.env (never printed)."""
+    if os.environ.get(env):
+        return os.environ[env]
+    from redline.core.config import settings
+
+    return getattr(settings, env.lower(), None)
+
+
+def is_free_tier(name: str) -> bool:
+    """Free hosted tiers (ADR-013): demos and public test cases only."""
+    n = (name or "").lower()
+    return n.startswith(("groq/", "gemini/", "hf/")) or (n.startswith("openrouter/") and n.endswith(":free"))
 
 
 class ModelError(ValueError):
@@ -98,11 +119,7 @@ def ollama_digest(entry: dict | None) -> str | None:
 
 def has_key(env: str) -> bool:
     """In the environment, or in ./.env (Settings reads it without exporting it)."""
-    if os.environ.get(env):
-        return True
-    from redline.core.config import settings
-
-    return bool(getattr(settings, env.lower(), None))
+    return bool(key_value(env))
 
 
 def check_models(specs: Sequence[ModelSpec]) -> dict[str, str | None]:
@@ -142,7 +159,7 @@ class BoundProvider:
         return await self.inner.complete_with_tools(messages, model=self.model, temperature=temperature, seed=seed, tools=tools)
 
 
-def provider_for(spec: ModelSpec):
+def provider_for(spec: ModelSpec, max_tokens: int | None = None):
     from redline.core.config import settings
     from redline.llm import provider as p
 
@@ -159,10 +176,16 @@ def provider_for(spec: ModelSpec):
     elif spec.provider == "gemini":
         inner = p.OpenAIProvider(base_url=settings.gemini_base_url, api_key=os.environ.get("GEMINI_API_KEY") or settings.gemini_api_key,
                                  send_seed=False)
+    elif spec.provider == "openrouter":
+        inner = p.OpenAIProvider(base_url=OPENROUTER_BASE_URL, api_key=key_value("OPENROUTER_API_KEY"), send_seed=False)
+    elif spec.provider == "hf":
+        inner = p.OpenAIProvider(base_url=HF_BASE_URL, api_key=key_value("HF_TOKEN"), send_seed=False)
     elif spec.provider == "endpoint":
         inner = p.OpenAIProvider(base_url=spec.base_url, api_key=os.environ.get("REDLINE_ENDPOINT_KEY") or "none")
     else:  # pragma: no cover - parse_model rejects these
         raise ModelError(f"Unsupported provider {spec.provider!r}")
+    if max_tokens:
+        inner.max_tokens = max_tokens
     return BoundProvider(inner, spec.model)
 
 

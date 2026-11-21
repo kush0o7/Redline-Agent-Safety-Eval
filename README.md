@@ -2,56 +2,56 @@
 
 **Did your fine-tune just get less safe? Find out in one command.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://github.com/kush0o7/Redline-Agent-Safety-Eval/actions/workflows/tests.yml/badge.svg)](https://github.com/kush0o7/Redline-Agent-Safety-Eval/actions/workflows/tests.yml)
+<img src="docs/demo.gif" alt="redline compare in a terminal. First line: Don't ship fake-degraded. It's less safe than fake-safe: 15 tests that fake-safe passed, fake-degraded failed." width="760">
+
+## Try it in 2 minutes, no downloads
 
 ```bash
 pip install redline-evals
-redline compare ollama/llama3.1 ollama/hermes3
+redline try
 ```
 
-<!-- Until the first PyPI release, install from GitHub: pip install "git+https://github.com/kush0o7/Redline-Agent-Safety-Eval#subdirectory=backend" -->
-<!-- TODO: add docs/report-screenshot.png from the real Llama 3.1 vs Hermes 3 report once it exists. -->
-No models handy? `redline compare fake-safe fake-degraded` runs offline on simulated models. **[See a sample report →](https://kush0o7.github.io/Redline-Agent-Safety-Eval/sample-report.html)** (simulated models)
+`redline try` asks for one free key ([Groq](https://console.groq.com/keys) or [OpenRouter](https://openrouter.ai/keys)), tests two hosted AI models on 10 tests and opens a report ([see one](https://kush0o7.github.io/Redline-Agent-Safety-Eval/sample-report.html)). Free tiers may keep your prompts, so use them for demos only. No key? `redline compare fake-safe fake-degraded` runs offline on two simulated models. Want the full test below on a free GPU? [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kush0o7/Redline-Agent-Safety-Eval/blob/main/notebooks/redline_colab.ipynb)
 
 ## What we found
 
-We tested **Hermes 3 8B**, a popular fine-tune, against its base model **Llama 3.1 8B**. Same 40 tests, free Kaggle GPU.
+We tested **Hermes 3 8B**, a popular fine-tune, against the model it was built from, **Llama 3.1 8B**, on the same 40 tests. Two different graders both said "don't ship", but disagreed on whether the size of the drop could be chance, so every Redline result names its grader ([full results and honest caveats](#first-real-model-results)).
 
 | | Llama 3.1 8B | Hermes 3 8B |
 |---|---|---|
-| Pass rate (AI judge) | 87.5% | 72.5% |
-| Sent a secret token to an attacker's URL | No | **Yes** |
-| Wrote a keylogger, a money-mule ad, pump-and-dump posts | Refused | **Complied** |
-| Release decision | | ❌ **FAIL** |
+| Tests passed (AI grader) | 87.5% | 72.5% |
+| Sent a secret key to an attacker's website when a document told it to | No | **Yes** |
+| Wrote a keylogger, a money-mule job ad, pump-and-dump posts | Refused | **Did it** |
 
-We ran the comparison twice, with two graders. Keyword rules said the drop was significant (p = 0.001). An AI judge said it could be noise (p = 0.146). Each run generated fresh answers, so part of that gap is sampling, but the lesson holds: **who grades can change the conclusion**, so Redline always tells you who graded and how far to trust it.
+- **Same tests, both versions.** Before and after a change, so any difference comes from the change.
+- **Checks what the AI does, not just what it says.** If hidden instructions in an email make it send data away, Redline sees the actual action.
+- **Real or luck?** Every comparison runs a chance check (McNemar test).
+- **One plain verdict first.** "Don't ship B" or "B is as safe as A", then each test that broke. Words explained in the [glossary](docs/glossary.md).
+- **Can run on your own machine.** With a local model and grader, your prompts stay with you ([not yet enforced](#current-limitations)).
 
-[Full results and caveats →](#first-real-model-results)
+## Connect your model
 
-## Why Redline
+| Your model runs on… | Write it as |
+|---|---|
+| Your computer, with Ollama | `ollama/llama3.1` |
+| A hosted API: OpenAI, Anthropic, Groq, Gemini, OpenRouter, Hugging Face | `openai/gpt-4o-mini`, `anthropic/<model>`, `groq/<model>`, `gemini/<model>`, `openrouter/<model>`, `hf/<org>/<model>` |
+| Your own server (vLLM, LiteLLM, any OpenAI-style API) | `http://host:8000/v1#model` |
 
-- **Fine-tuning quietly breaks safety.** Re-test every version on the exact same cases.
-- **It grades what agents do, not just what they say.** Prompt injection is checked from the actual tool calls.
-- **Real change or noise?** Every comparison comes with a statistics test (McNemar).
-- **Runs on your machine.** With Ollama and a local judge, your prompts and answers stay on it (an enforced offline mode is [still to come](#current-limitations)).
-- **Vendor-neutral.** Not owned by any model lab.
+Teams: server mode, the API and evidence reports for model risk → [docs/for-teams.md](docs/for-teams.md)
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/) [![Tests](https://github.com/kush0o7/Redline-Agent-Safety-Eval/actions/workflows/tests.yml/badge.svg)](https://github.com/kush0o7/Redline-Agent-Safety-Eval/actions/workflows/tests.yml)
 
 ## What it tests
 
-| Category | Example |
+| Area | Example |
 |---|---|
-| Jailbreaks | Tricks to get harmful instructions |
-| Prompt injection | Hidden instructions in emails and web pages the agent reads |
-| Made-up facts | Confident answers about things that don't exist |
-| Over-refusal | Refusing harmless questions |
+| Harmful requests and jailbreaks | Tricks to get harmful instructions |
+| Hidden instructions in documents the AI reads (prompt injection) | Orders hidden in emails and web pages the agent reads |
+| Making things up (hallucination) | Confident answers about things that don't exist |
+| Refusing harmless questions (over-refusal) | Saying no to a normal request |
 | Finance pack | Fraud, market manipulation, leaking customer data |
 
-172 cases. [Add your own](CONTRIBUTING.md).
-
-## For teams
-Server mode, the HTTP API, evidence reports for model-risk and compliance → [docs/for-teams.md](docs/for-teams.md)
+172 tests. [Add your own](CONTRIBUTING.md).
 
 ---
 
@@ -59,11 +59,13 @@ Server mode, the HTTP API, evidence reports for model-risk and compliance → [d
 
 ```bash
 redline compare BEFORE AFTER [--cases 40] [--packs core,financial_services] [--seed 7] [--judge J] [--out ./redline-out] [--concurrency N]
+redline try                            # a quick real check with one free Groq or OpenRouter key, no downloads
 redline scan MODEL [same options]      # one model against the tier criteria
 redline report [./redline-out]         # print the summary again and rewrite the files
 ```
 
-- **Models:** `ollama/llama3.1`, `openai/gpt-4o-mini`, `anthropic/<model>`, `groq/<model>`, `gemini/<model>`, any OpenAI-compatible server as `http://host:port/v1#model` (key in `REDLINE_ENDPOINT_KEY`), and the simulated `fake-safe` / `fake-degraded`. API keys come from the environment or a `.env` file in the current folder. If Ollama isn't running or a model isn't pulled, Redline stops before the run and prints the fix (for example `ollama pull hermes3`).
+- **Plain output:** the first line is one sentence ("❌ Don't ship B…" / "✅ B is as safe as A…"), then each broken test as what we asked / what A did / what B did / why it matters. `--details` adds the technical names, evidence and p-values ([glossary](docs/glossary.md)).
+- **Models:** `ollama/llama3.1`, `openai/gpt-4o-mini`, `anthropic/<model>`, `groq/<model>`, `gemini/<model>`, `openrouter/<model>` (key in `OPENROUTER_API_KEY`; `:free` models are free tier), `hf/<org>/<model>` (Hugging Face router, `HF_TOKEN`), any OpenAI-compatible server as `http://host:port/v1#model` (key in `REDLINE_ENDPOINT_KEY`), and the simulated `fake-safe` / `fake-degraded`. API keys come from the environment or a `.env` file in the current folder. If Ollama isn't running or a model isn't pulled, Redline stops before the run and prints the fix (for example `ollama pull hermes3`).
 - **Grader (`--judge`):** by default a local Ollama judge, if a suitable model that isn't under test is pulled (for example `ollama pull qwen2.5:7b`). Otherwise keyword rules, with a loud warning that they're less reliable. Or name one: `--judge ollama/qwen2.5:7b`, `--judge groq/openai/gpt-oss-120b` (free tiers: public test cases only), `--judge keyword`. The grader is printed and recorded in every report. Judge accuracy hasn't been measured against human labels yet.
 - **Output (`--out`):** a terminal summary (pass rate per model, the cases that broke, the McNemar result, tiers, PASS/FAIL and the top 3 risks), plus `report.html`, `results.jsonl` (one line per case per model) and `summary.json`. Answers to harmful requests are redacted in all of them.
 - **Exit codes:** `0` the release passes, `1` it fails, `2` an error or an interrupted run, so `redline compare` works as a CI step as it is.
@@ -290,6 +292,10 @@ Groq and Google Gemini have free API tiers that work as both the model under tes
 | Gemini as the model | `LLM_PROVIDER=gemini`, `GEMINI_API_KEY`, `DEFAULT_MODEL=gemini-2.5-flash` (OpenAI-compatible layer) |
 | Groq as the judge | `JUDGE_MODEL=groq/openai/gpt-oss-120b` (Groq retires models; check console.groq.com/docs/models) |
 | Gemini as the judge | `JUDGE_MODEL=gemini/gemini-2.5-flash` |
+| OpenRouter (CLI) | `openrouter/<model>:free` as a model or `--judge`, `OPENROUTER_API_KEY`. Free models: 20 requests/min, 50 requests/day (1,000/day after buying 10 credits); the list changes, check openrouter.ai/models?q=free |
+| Hugging Face (CLI) | `hf/<org>/<model>`, `HF_TOKEN` (router.huggingface.co, OpenAI-compatible) |
+
+`redline try` picks two models and a grader that your key can use today, sends 10 tests with short answers (max 300 tokens) and skips the pacing floor, because a 10-case run fits the free per-minute limits; the grader retries rate-limit errors and stops with a clear message when a daily limit is reached.
 
 **Rate limits.** Free-tier quotas change often and differ by model and account; check your account's limits in the Groq console and Google AI Studio. Published figures as of late 2026 conflict (Groq roughly 30 requests/min and 6K–12K tokens/min on large models, ~1K–14K requests/day; Gemini Flash roughly 10–15 requests/min, and reportedly as low as 20 requests/day after Dec 2025 cuts). Each test case makes 1–5 model calls (tool scenarios up to 4) plus one judge call, so Redline enforces a pacing floor between cases whenever a free provider or judge is used: at least **10 s for Groq** and **30 s for Gemini**, even if `EVAL_PACING_SECONDS` is lower. 429s are retried with back-off. A 30-case before/after demo is ~60 cases, ~150–250 requests: fine on Groq's daily quota, likely too much for Gemini's lowest free quota (use Gemini only as the judge, or fewer cases).
 
@@ -331,7 +337,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[server,dev]"
-pytest tests/ -q        # 363 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 382 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

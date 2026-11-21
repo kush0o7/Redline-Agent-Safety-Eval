@@ -56,7 +56,7 @@ ui/            Static HTML + JS (no build step): index, methodology, leaderboard
 ```bash
 cd backend
 pip install -e ".[server,dev]"
-pytest tests/ -q   # 363 tests, no API keys required
+pytest tests/ -q   # 382 tests, no API keys required
 ```
 
 `conftest.py` sets `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true`, `REDLINE_ENV=development` and a high `EVAL_RATE_LIMIT`. Every behaviour change needs a test.
@@ -111,6 +111,9 @@ Out of scope for now: accounts/multi-tenancy, compliance PDF export, multi-turn 
 - `--out` (default `./redline-out`) holds `redline.db`, `state.json` (job key → run IDs, for resume), `report.html`, `results.jsonl` (redacted like reports), `summary.json`.
 - `execute_run` hooks (keyword-only, server uses the defaults): `provider`, `run_info`, `concurrency`, `pacing_seconds`, `answer_cache`, `on_progress`. It skips cases that already have a result for the run (resume). `generate_answers` fills the cache first so a local judge isn't swapped in and out per case.
 - Default judge: a pulled Ollama model from `models.LOCAL_JUDGE_PREFERENCE` that isn't under test (same family = excluded), else keyword rules with a loud warning. An Ollama judge goes through Ollama's OpenAI-compatible `/v1` in instructor JSON mode (`judge.judge_model_id`, `judge_credentials`).
+- `redline try` (`try_cmd.py`): one free Groq/OpenRouter key (env, `./.env`, or a hidden prompt; never printed or written), picks before/after/grader from what the key can use today, 10 cases, `max_tokens` 300, no pacing floor (`fast`), opens the report. OpenRouter checks `/key` for ≥ 45 free requests left. `openrouter/<m>` and `hf/<org>/<m>` reuse the OpenAI-compatible provider. Any free-tier model or judge prints `models.FREE_TIER_LINE` (ADR-013).
+- Plain English (`evals/plain.py`) is the single source of wording: `headline()` is the first line of every compare (terminal, report, `summary.json["plain"]`), plus `notes`, per-broken-test `case_story` (asked / A did / B did / why) and `scan_headline`. Technical names (McNemar, tier, severity 5, judge) go in brackets or behind `--details`. `docs/glossary.md` explains 10 terms. Judge calls retry rate limits and raise `JudgeQuotaExceeded` when the wait is > 90 s.
+- `scripts/make_visuals.py` rebuilds `docs/demo.gif` and `docs/social-preview.png` from real CLI output (Pillow); `docs/demo.tape` is the vhs alternative. Launch drafts live in `docs/launch/` (nothing posted).
 - `local.bootstrap()` must run before anything imports `redline.core.config`; it sets throwaway in-process values for the server-only required settings (no admin key needed locally).
 
 ## MCP server (Claude Code integration)

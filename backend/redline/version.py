@@ -8,12 +8,18 @@ from importlib import metadata
 from pathlib import Path
 
 
+FALLBACK_VERSION = "0.2.0"  # keep equal to pyproject.toml (tests/test_packaging.py checks)
+
+
 @lru_cache(maxsize=1)
 def redline_version() -> str:
-    try:
-        version = metadata.version("redline-backend")
-    except metadata.PackageNotFoundError:
-        version = "0.1.0"
+    version = FALLBACK_VERSION
+    for dist in ("redline-evals", "redline-backend"):  # redline-backend: the old name
+        try:
+            version = metadata.version(dist)
+            break
+        except metadata.PackageNotFoundError:
+            continue
     try:
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],

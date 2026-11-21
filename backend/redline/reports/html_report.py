@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from redline.db.models import Run, RunResult, Testcase
+from redline.evals import plain
 from redline.evals.comparison import build_comparison, run_brief
 from redline.evals.redaction import REDACTED, redact_text
 from redline.evals.release import injection_impact, risk_sentence
@@ -67,6 +68,13 @@ details.case .body{padding:0 12px 12px}
 .impact{border-left:3px solid var(--bad);padding-left:10px}
 pre.redacted{color:var(--muted);font-style:italic}
 table.calls td{font-size:13px;word-break:break-word}
+.plain{border-radius:12px;padding:16px 18px;margin:16px 0 4px;background:var(--card);border:2px solid var(--line)}
+.plain.fail{border-color:var(--bad)}.plain.pass{border-color:var(--good)}
+.plain .headline{font-size:21px;font-weight:800;line-height:1.35;margin:0}.plain .notes{margin:8px 0 0 18px;color:var(--muted)}
+.story{border-top:1px solid var(--line);padding:10px 0}.story:first-child{border-top:0}.story p{margin:2px 0;overflow-wrap:anywhere}
+.story .k{color:var(--muted);display:inline-block;min-width:9.5em}
+.share{border:1px dashed var(--line);border-radius:10px;padding:12px 14px;margin:24px 0}
+.share pre{max-height:none}
 @media print{pre{max-height:none}details>summary{list-style:none}}
 """
 
@@ -369,22 +377,63 @@ def _grouped(cases: list[dict], render, *, noun: str) -> str:
     return "".join(out)
 
 
+REPO_URL = "https://github.com/kush0o7/Redline-Agent-Safety-Eval"
+MAX_STORIES = 12
+
+
+def _plain_headline(text: str, ok: bool, notes: list[str]) -> str:
+    items = "".join(f"<li>{_e(n)}</li>" for n in notes)
+    return (f"<section class='plain {'pass' if ok else 'fail'}'><p class='headline'>{_e(text)}</p>"
+            + (f"<ul class='notes'>{items}</ul>" if items else "") + "</section>")
+
+
+def _stories(stories: list[dict], a: str, b: str) -> str:
+    if not stories:
+        return ""
+    order = sorted(stories, key=lambda s: ["most dangerous", "very dangerous", "dangerous", "minor", "unrated"].index(
+        s["danger"]) if s["danger"] in ("most dangerous", "very dangerous", "dangerous", "minor", "unrated") else 9)
+    shown = order[:MAX_STORIES]
+    more = len(order) - len(shown)
+    rows = "".join(
+        f"<div class='story'><p><strong>✗ {_e(s['name'])}</strong> <span class='muted'>({_e(s['danger'])} · {_e(s['area_short'])})</span></p>"
+        f"<p><span class='k'>We asked:</span> {_e(_clip(s['asked'], 240))}</p>"
+        f"<p><span class='k'>{_e(a)}:</span> {_e(s['a_did'])}</p>"
+        f"<p><span class='k'>{_e(b)}:</span> {_e(s['b_did'])}</p>"
+        f"<p><span class='k'>Why it matters:</span> {_e(s['why'])}</p></div>" for s in shown)
+    tail = f"<p class='muted'>…and {more} more in the full list below.</p>" if more > 0 else ""
+    return (f"<h2>What broke, in plain words</h2><p class='meta'>Tests that {_e(a)} passed and {_e(b)} failed, "
+            f"most dangerous first. Answers to harmful requests stay hidden.</p>{rows}{tail}")
+
+
+def _share_block(lines: list[str]) -> str:
+    text = "\n".join(lines + [REPO_URL])
+    return (f"<section class='share'><h3 style='margin:0 0 6px'>Share this</h3>"
+            f"<p class='meta'>Copy and paste. It says what Redline does, not your scores.</p><pre>{_e(text)}</pre></section>")
+
+
+SHARE_LINES = [
+    "I checked whether my AI model got less safe after a change, using Redline.",
+    "It runs the same tests on both versions, grades every answer and says if the difference is real or chance.",
+    "Free and open source, runs on your own machine:",
+]
+
+
 def _exec_summary(rel: dict) -> str:
     ok = rel["decision"] == "PASS"
     risks = "".join(
-        f"<li>{_e(r['risk'])} <span class='muted'>({r['cases']} case{'' if r['cases'] == 1 else 's'}, "
-        f"severity {_e(r['severity'])})</span></li>" for r in rel.get("top_risks") or [])
+        f"<li>{_e(r['risk'])} <span class='muted'>({r['cases']} test{'' if r['cases'] == 1 else 's'}, "
+        f"{_e(plain.danger(r['severity']))} · severity {_e(r['severity'])})</span></li>" for r in rel.get("top_risks") or [])
     notes = "".join(f"<li>{_e(n)}</li>" for n in rel.get("notes") or [])
     checks = " · ".join(
-        f"{'✓' if c['ok'] else '✗'} {_e('tier ' + str(c['required']) if c['name'] == 'tier' else 'no new severity-5 regressions')}"
+        f"{'✓' if c['ok'] else '✗'} {_e('safety grade (tier) ' + str(c['required']) if c['name'] == 'tier' else 'no new failures among the most dangerous (severity 5)')}"
         f" <span class='muted'>(actual: {_e(c['actual'])}{'; waived: ' + _e(c['waived']) if c.get('waived') else ''})</span>"
         for c in rel.get("checks") or [])
     return (f"<section class='exec {'pass' if ok else 'fail'}'><div class='decision'>"
             f"<span class='verdict'>Release decision: {_e(rel['decision'])}</span>"
-            f"<span class='reason'>{_e(rel['reason'])}</span></div>"
+            f"<span class='reason'>{_e(plain.plain_text(rel['reason']))}</span></div>"
             f"<p class='meta'>Gates: {checks}</p>"
             + (f"<h3>Top risks</h3><ol>{risks}</ol>" if risks else "")
-            + f"<p class='action'><strong>Recommended action:</strong> {_e(rel['recommended_action'])}</p>"
+            + f"<p class='action'><strong>Recommended action:</strong> {_e(plain.plain_text(rel['recommended_action']))}</p>"
             + (f"<ul class='meta'>{notes}</ul>" if notes else "")
             + "</section>")
 
@@ -402,22 +451,22 @@ def render_comparison_report(db: Session, base_run: Run, candidate_run: Run, *, 
     if (cmp.get("system_prompt") or {}).get("warning"):
         warn += f"<p class='warn'><strong>System prompt differs.</strong> {_e(cmp['system_prompt']['warning'])}</p>"
     if (cmp.get("judge") or {}).get("warning"):
-        warn += f"<p class='warn'><strong>Judge differs.</strong> {_e(cmp['judge']['warning'])}</p>"
+        warn += f"<p class='warn'><strong>Grader differs (judge).</strong> {_e(cmp['judge']['warning'])}</p>"
     overall = (cmp.get("significance") or {}).get("overall")
     regs, imps = cmp["flipped"]["regressions"], cmp["flipped"]["improvements"]
     reasons = "".join(f"<li>{_e(r)}</li>" for r in c.get("reasons") or [])
     shared = cmp["common_total"]
     render = lambda d: _case_block(d, include_full_outputs)  # noqa: E731
-    body = _banners([b, c], include_full_outputs) + _header("comparison report", [b, c], now) + warn + _excluded_note([b, c]) + _exec_summary(cmp["release"]) + f"""
+    body = _banners([b, c], include_full_outputs) + _header("comparison report", [b, c], now) + _plain_headline(cmp["plain"]["headline"], cmp["release"]["decision"] == "PASS", cmp["plain"]["notes"]) + warn + _excluded_note([b, c]) + _exec_summary(cmp["release"]) + _stories(cmp["plain"]["broken"], b['model'], c['model']) + f"""
 <div class='cards'>
 <div class='card'><div class='muted'>Before · {_e(b['model'])}</div><div class='big'>{_pct(b.get('pass_rate'))}</div><div>{_tier_label(b)}</div></div>
 <div class='card'><div class='muted'>After · {_e(c['model'])}</div><div class='big'>{_pct(c.get('pass_rate'))}</div><div>{_tier_label(c)}</div></div>
-<div class='card'><div class='muted'>Overall change</div><div class='big'>{_delta(cmp.get('pass_rate_delta'))}</div><div class='{tier_cls}'>Tier {_e(tc['from'])} → {_e(tc['to'])}</div><div>{_sig(overall)}</div></div>
-<div class='card'><div class='muted'>Flipped cases</div><div class='flips'><span class='bad'>{len(regs)} regression{'' if len(regs) == 1 else 's'}</span> · <span class='good'>{len(imps)} improvement{'' if len(imps) == 1 else 's'}</span></div><div class='muted'>of {shared} shared case{'' if shared == 1 else 's'}</div></div>
+<div class='card'><div class='muted'>Overall change</div><div class='big'>{_delta(cmp.get('pass_rate_delta'))}</div><div class='{tier_cls}'>Safety grade (tier) {_e(tc['from'])} → {_e(tc['to'])}</div><div>Chance check: {_sig(overall)}</div></div>
+<div class='card'><div class='muted'>Tests that changed</div><div class='flips'><span class='bad'>{len(regs)} regression{'' if len(regs) == 1 else 's'}</span> · <span class='good'>{len(imps)} improvement{'' if len(imps) == 1 else 's'}</span></div><div class='muted'>of {shared} shared case{'' if shared == 1 else 's'}</div></div>
 </div>
 <h2>Summary</h2>
-<p>On the same {shared} cases, the pass rate moved from <strong>{_pct(cmp.get('base_pass_rate'))}</strong> to <strong>{_pct(cmp.get('candidate_pass_rate'))}</strong> ({_delta(cmp.get('pass_rate_delta'))}); the tier moved from <strong>{_e(tc['from'])}</strong> to <strong>{_e(tc['to'])}</strong>. {len(regs)} case(s) regressed and {len(imps)} improved. Statistically, the overall change is {_sig(overall)} (McNemar exact test on the flipped cases).</p>
-{f"<p class='muted'>Why the after-run got its tier:</p><ul>{reasons}</ul>" if reasons else ""}
+<p>On the same {shared} cases, the pass rate moved from <strong>{_pct(cmp.get('base_pass_rate'))}</strong> to <strong>{_pct(cmp.get('candidate_pass_rate'))}</strong> ({_delta(cmp.get('pass_rate_delta'))}); the safety grade (tier) moved from <strong>{_e(tc['from'])}</strong> to <strong>{_e(tc['to'])}</strong>. {len(regs)} case(s) regressed and {len(imps)} improved. The chance check says the overall change is {_sig(overall)} (McNemar exact test on the tests that changed).</p>
+{f"<p class='muted'>Why the after-run got its safety grade:</p><ul>{reasons}</ul>" if reasons else ""}
 {_decided_by_line(c.get('decided_by') or {})}
 {_delta_table("Per category", cmp['categories'], significance=True)}
 {_delta_table("Per pack", cmp['packs'])}
@@ -426,7 +475,7 @@ def render_comparison_report(db: Session, base_run: Run, candidate_run: Run, *, 
 {_grouped(regs, render, noun='regression')}
 <h2>Improvements (fail → pass)</h2>
 {_grouped(imps, render, noun='improvement')}
-{_methodology([b, c])}"""
+{_methodology([b, c])}{_share_block(SHARE_LINES)}"""
     return _page(f"Redline comparison — {b['model']} vs {c['model']}", body)
 
 
@@ -473,16 +522,18 @@ def render_run_report(db: Session, run: Run, *, now: str | None = None, include_
 
     reasons = "".join(f"<li>{_e(x)}</li>" for x in brief.get("reasons") or [])
     ci = summary.get("confidence_interval") or {}
-    body = _banners([brief], include_full_outputs) + _header("run report", [brief], now) + _excluded_note([brief]) + f"""
+    sev_passed, grade, floor = plain.scan_verdict(summary)
+    head = plain.scan_headline(brief['model'], sev_passed, grade, floor, summary)
+    body = _banners([brief], include_full_outputs) + _header("run report", [brief], now) + _plain_headline(head, sev_passed, []) + _excluded_note([brief]) + f"""
 <div class='cards'>
 <div class='card'><div class='muted'>Model</div><div class='big' style='font-size:18px'>{_e(brief['model'])}</div><div class='muted'>mode {_e(brief['mode'])} · seed {_e(brief['seed'])}</div></div>
 <div class='card'><div class='muted'>Pass rate</div><div class='big'>{_pct(brief.get('pass_rate'))}</div><div class='muted'>{summary.get('passed', '?')}/{summary.get('total', '?')} · 95% CI {_pct(ci.get('low'))}–{_pct(ci.get('high'))}</div></div>
-<div class='card'><div class='muted'>Tier</div><div class='big' style='font-size:20px'>{_tier_label(brief)}</div></div>
-<div class='card'><div class='muted'>Severity-5 failures</div><div class='big'>{_e(summary.get('severity5_failures', 0))}</div></div>
+<div class='card'><div class='muted'>Safety grade (tier)</div><div class='big' style='font-size:20px'>{_tier_label(brief)}</div></div>
+<div class='card'><div class='muted'>Most dangerous failures (severity 5)</div><div class='big'>{_e(summary.get('severity5_failures', 0))}</div></div>
 </div>
 <h2>Summary</h2>
 <p>Status: {_e(run.status)}. {len(failures)} of {len(rows)} cases failed.</p>
-{f"<p class='muted'>Tier reasons:</p><ul>{reasons}</ul>" if reasons else ""}
+{f"<p class='muted'>Why it got this safety grade:</p><ul>{reasons}</ul>" if reasons else ""}
 {_decided_by_line(summary.get('decided_by') or {})}
 {_group_table("Per category", summary.get('tier_categories') or {})}
 {_group_table("Per pack", summary.get('packs') or {})}
@@ -490,5 +541,5 @@ def render_run_report(db: Session, run: Run, *, now: str | None = None, include_
 <h2>Failed cases, by category</h2>
 <p class='meta'>Most severe first. Answers to harmful requests are redacted{' — full outputs are included in this copy' if include_full_outputs else ''}; injection tool calls are always shown.</p>
 {_grouped(failures, render, noun='failure')}
-{_methodology([brief])}"""
+{_methodology([brief])}{_share_block(SHARE_LINES)}"""
     return _page(f"Redline run report — {brief['model']}", body)

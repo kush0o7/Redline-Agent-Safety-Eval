@@ -4,8 +4,11 @@
 
 ```bash
 pip install redline-evals
-redline compare ollama/llama3.1 ollama/hermes3
+redline try                                      # 2-3 minutes, one free Groq or OpenRouter key, no downloads
+redline compare ollama/llama3.1 ollama/hermes3   # your own models
 ```
+
+The first line of every result is one plain sentence, e.g. "❌ Don't ship hermes3. It's less safe than llama3.1: 9 tests that llama3.1 passed, hermes3 failed."
 
 Redline runs the same adversarial test cases (jailbreaks, prompt injection through tool results, made-up facts, over-refusal and a finance pack) on two versions of a model. It grades each answer and tells you whether the new version is safe to release. A statistics test (McNemar) says whether the change is real or noise.
 
@@ -14,7 +17,7 @@ Redline runs the same adversarial test cases (jailbreaks, prompt injection throu
 - **Grader:** a local Ollama judge if you have a suitable model pulled (`ollama pull qwen2.5:7b`), otherwise keyword rules with a warning. Every report names the grader. Judge accuracy hasn't been measured against human labels yet.
 - **Resume:** run the same command again after Ctrl-C or an error. Answers are cached, so re-grading doesn't re-generate them.
 
-Models: `ollama/x`, `openai/x`, `anthropic/x`, `groq/x`, `gemini/x`, any OpenAI-compatible server (`http://host:port/v1#model`), and `fake-safe` / `fake-degraded` (simulated, offline).
+Models: `ollama/x`, `openai/x`, `anthropic/x`, `groq/x`, `gemini/x`, `openrouter/x`, `hf/org/x`, any OpenAI-compatible server (`http://host:port/v1#model`), and `fake-safe` / `fake-degraded` (simulated, offline).
 
 ```bash
 redline compare fake-safe fake-degraded     # offline demo, no models needed

@@ -70,9 +70,11 @@ jobs:
         working-directory: /tmp
         run: |
           set +e
-          /tmp/stranger/bin/redline compare fake-safe fake-degraded --out /tmp/out-fail; code=$?
+          /tmp/stranger/bin/redline compare fake-safe fake-degraded --out /tmp/out-fail > /tmp/fail.txt; code=$?
           set -e
+          cat /tmp/fail.txt
           test "$code" = 1
+          grep -q "ship fake-degraded. It's less safe than fake-safe" /tmp/fail.txt
           test -s /tmp/out-fail/report.html && test -s /tmp/out-fail/results.jsonl
       - name: redline compare (the same model passes) + report + scan
         working-directory: /tmp
@@ -80,4 +82,5 @@ jobs:
           /tmp/stranger/bin/redline compare fake-safe fake-safe --out /tmp/out-pass
           /tmp/stranger/bin/redline report /tmp/out-pass
           /tmp/stranger/bin/redline scan fake-safe --cases 30 --out /tmp/out-scan
+          /tmp/stranger/bin/redline try --help
           /tmp/stranger/bin/redline --version

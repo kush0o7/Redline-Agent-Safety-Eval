@@ -30,9 +30,11 @@ def test_compare_degraded_fails_with_exit_1_and_writes_files(tmp_path, capsys):
     out = tmp_path / "out"
     assert run_cli("compare", "fake-safe", "fake-degraded", "--cases", 30, "--out", out) == cli.EXIT_FAIL
     text = capsys.readouterr().out
-    assert "SAFETY REGRESSION CHECK" in text and "RELEASE DECISION: FAIL" in text
-    assert "McNemar exact test" in text and "Top risks:" in text and "Cases that broke" in text
-    assert "Graded by:    keyword heuristic" in text
+    assert "❌ Don't ship fake-degraded. It's less safe than fake-safe:" in text
+    assert "This is very unlikely to be chance." in text
+    assert "Chance check (McNemar test)" in text and "Biggest risks" in text and "Tests that broke" in text
+    assert "Grader: keyword rules (less reliable than an AI grader)" in text
+    assert "We asked:" in text and "fake-safe:" in text and "Why it matters:" in text
     for name in ("report.html", "results.jsonl", "summary.json", "redline.db", "state.json"):
         assert (out / name).exists(), name
     rows = _rows(out)
@@ -50,7 +52,7 @@ def test_compare_same_model_passes_with_exit_0(tmp_path):
 
 def test_scan_exit_codes(tmp_path, capsys):
     assert run_cli("scan", "fake-safe", "--cases", 30, "--out", tmp_path / "a") == cli.EXIT_PASS
-    assert "RESULT: ✅ PASS" in capsys.readouterr().out
+    assert "✅ fake-safe passed the bar: safety grade Hardened" in capsys.readouterr().out
     assert run_cli("scan", "fake-degraded", "--cases", 30, "--out", tmp_path / "b") == cli.EXIT_FAIL
 
 
@@ -59,7 +61,7 @@ def test_report_rewrites_the_files_from_the_folder(tmp_path, capsys):
     (tmp_path / "report.html").unlink()
     capsys.readouterr()
     assert run_cli("report", tmp_path) == cli.EXIT_FAIL
-    assert (tmp_path / "report.html").exists() and "SAFETY REGRESSION CHECK" in capsys.readouterr().out
+    assert (tmp_path / "report.html").exists() and "❌ Don't ship fake-degraded" in capsys.readouterr().out
 
 
 def test_report_on_an_empty_folder_is_an_error(tmp_path, capsys):
@@ -259,7 +261,9 @@ def test_keyword_grader_warning_is_loud_for_real_models(capsys):
     out = capsys.readouterr().out
     assert "KEYWORD RULES — LESS RELIABLE" in out and "ollama pull qwen2.5:7b" in out
     cli._grader_banner("groq/openai/gpt-oss-120b", None, [parse_model("ollama/llama3.1")])
-    assert "public test cases only" in capsys.readouterr().out
+    assert "Free tiers may keep your prompts. Use for demos only, not private data." in capsys.readouterr().out
+    cli._grader_banner("ollama/qwen2.5:7b", None, [parse_model("ollama/llama3.1")])
+    assert "Free tiers" not in capsys.readouterr().out
 
 
 def test_ollama_judge_uses_json_mode_and_the_openai_compatible_endpoint(monkeypatch):
@@ -357,7 +361,7 @@ def test_compare_two_ollama_models_with_the_auto_picked_local_judge(tmp_path, mo
     code = run_cli("compare", "ollama/llama3.1", "ollama/hermes3", "--cases", 10, "--out", tmp_path)
     out = capsys.readouterr().out
     assert code in (cli.EXIT_PASS, cli.EXIT_FAIL)
-    assert "Grader: ollama/qwen2.5:7b" in out and "Graded by:    ollama/qwen2.5:7b" in out
+    assert "Grader: ollama/qwen2.5:7b" in out and "Grader: ollama/qwen2.5:7b (AI grader)" in out
     summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
     info = summary["candidate"]["run_info"]
     assert info["judge"] == "ollama/qwen2.5:7b" and info["provider"] == "ollama"

@@ -10,7 +10,7 @@ Everyone taking part agrees to the [code of conduct](CODE_OF_CONDUCT.md). Please
 git clone https://github.com/kush0o7/Redline-Agent-Safety-Eval
 cd Redline-Agent-Safety-Eval/backend
 pip install -e ".[server,dev]"
-pytest tests/ -q   # 363 tests, no API keys required
+pytest tests/ -q   # 382 tests, no API keys required
 ```
 
 Tests use `DEV_FAKE_JUDGE=true`, `DEV_FAKE_PROVIDER=true` and `REDLINE_ENV=development`, all set automatically in `conftest.py`.

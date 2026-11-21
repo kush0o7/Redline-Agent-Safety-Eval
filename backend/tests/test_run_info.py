@@ -37,7 +37,7 @@ def test_report_shows_grader_details_and_trust_note(client):
                    "model temperature 0.2", "judge temperature", "How far to trust these verdicts",
                    "not yet been measured against human labels"):
         assert needle in html, needle
-    assert "Judge differs" not in html
+    assert "Grader differs (judge)" not in html
     cmp = client.get(f"/quick-eval/{cand}/compare", params={"base_run_id": base}).json()
     assert cmp["judge"]["identical"] is True and cmp["judge"]["warning"] is None
     assert cmp["base"]["run_info"]["judge"] == run_info.KEYWORD_JUDGE
@@ -52,7 +52,7 @@ def test_compare_warns_when_judges_differ(client, db):
     cmp = client.get(f"/quick-eval/{cand}/compare", params={"base_run_id": base}).json()
     assert cmp["judge"]["identical"] is False and "different judges" in cmp["judge"]["warning"]
     html = client.get(f"/quick-eval/{cand}/compare/report", params={"base_run_id": base}).text
-    assert "Judge differs" in html and "gpt-oss-120b" in html
+    assert "Grader differs (judge)" in html and "gpt-oss-120b" in html
 
 
 def test_compare_judges_handles_legacy_runs():

@@ -19,7 +19,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from redline.models import KEYWORD, ModelError, ModelSpec, check_models, choose_judge, ollama_url, parse_model
+from redline.models import (FREE_TIER_LINE, KEYWORD, ModelError, ModelSpec, check_models, choose_judge, is_free_tier,
+                            ollama_url, parse_model)
 
 EXIT_PASS, EXIT_FAIL, EXIT_ERROR = 0, 1, 2
 DEFAULT_PACKS = "core,financial_services"
@@ -97,8 +98,8 @@ def _grader_banner(judge: str, note: str | None, specs: list[ModelSpec]) -> None
         print("  Better: pull a local judge (ollama pull qwen2.5:7b), or pass --judge provider/model.\n")
     else:
         print(f"  Grader: {judge}" + (f"  (⚠ {note})" if note else ""))
-        if judge.split("/", 1)[0] in ("groq", "gemini"):
-            print("  ⚠ Free-tier judges see every prompt and answer: use them for public test cases only.")
+    if is_free_tier(judge) or any(is_free_tier(s.raw) for s in specs):
+        print(f"  ⚠ {FREE_TIER_LINE}")
 
 
 def _prepare(args, specs: list[ModelSpec]):
@@ -130,13 +131,14 @@ def _settings_for(judge: str, specs: list[ModelSpec]) -> dict:
     return values
 
 
-async def _run_models(store, specs, runs, judge, fingerprints, concurrency, use_cache, current) -> None:
+async def _run_models(store, specs, runs, judge, fingerprints, concurrency, use_cache, current, opts) -> None:
     from redline import local
     from redline.evals.run_info import build_run_info
     from redline.models import provider_for
 
     cache = local.SqliteAnswerCache(store, fingerprints) if use_cache else None
-    judge_floor = FREE_TIER_FLOOR.get(judge.split("/", 1)[0], 0.0) if judge != KEYWORD else 0.0
+    # `redline try` (opts["fast"]) skips the fixed free-tier pauses and relies on rate-limit-aware retries.
+    judge_floor = 0.0 if opts.get("fast") or judge == KEYWORD else FREE_TIER_FLOOR.get(judge.split("/", 1)[0], 0.0)
     for spec, run_id in zip(specs, runs):
         with store.Session() as db:
             from redline.db.models import Run
@@ -149,30 +151,40 @@ async def _run_models(store, specs, runs, judge, fingerprints, concurrency, use_
             if already:
                 print(f"  {spec.raw}: resuming ({already} cases already graded).")
             current["run_id"] = run.id
-            answer_floor = FREE_TIER_FLOOR.get(spec.provider, 0.0)
+            answer_floor = 0.0 if opts.get("fast") else FREE_TIER_FLOOR.get(spec.provider, 0.0)
             conc = 1 if (answer_floor or judge_floor) else concurrency
 
             def on_phase(run, phase, total, _spec=spec):
                 return Progress(f"{phase} · {_spec.raw}", total)
 
             hooks = local.RunHooks(
-                provider=provider_for(spec),
+                provider=provider_for(spec, max_tokens=opts.get("max_tokens")),
                 run_info=await build_run_info(run, provider=spec.provider, fingerprint=fingerprints.get(spec.raw)),
                 cache=cache, concurrency=conc, answer_pacing=answer_floor, judge_pacing=judge_floor,
                 on_phase=on_phase)
             summary = await local.execute(db, run, hooks)
-            print(f"  {spec.raw}: {summary['passed']}/{summary['total']} passed ({summary['pass_rate'] * 100:.1f}%), "
-                  f"tier {summary['tier']}" + (f" · {hooks.stats.get('generated', 0)} answers generated" if cache else ""))
+            print(f"  {spec.raw}: passed {summary['passed']} of {summary['total']} ({summary['pass_rate'] * 100:.0f}%)")
     current["run_id"] = None
 
 
-def _execute(store, specs, runs, judge, fingerprints, concurrency, use_cache) -> int | None:
+def _scrub(text: str) -> str:
+    """Never echo a key back, even inside a provider's error message."""
+    import os
+
+    for name in ("GROQ_API_KEY", "OPENROUTER_API_KEY", "HF_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
+        value = os.environ.get(name)
+        if value and len(value) > 8:
+            text = text.replace(value, "***")
+    return text
+
+
+def _execute(store, specs, runs, judge, fingerprints, concurrency, use_cache, opts=None) -> int | None:
     """Run (or resume) the runs. Returns an exit code on Ctrl-C / failure, None on success."""
     from redline import local
 
     current: dict = {"run_id": None}
     try:
-        asyncio.run(_run_models(store, specs, runs, judge, fingerprints, concurrency, use_cache, current))
+        asyncio.run(_run_models(store, specs, runs, judge, fingerprints, concurrency, use_cache, current, opts or {}))
     except KeyboardInterrupt:
         if current["run_id"]:
             local.mark_unfinished(store, current["run_id"], "interrupted")
@@ -181,8 +193,8 @@ def _execute(store, specs, runs, judge, fingerprints, concurrency, use_cache) ->
         return EXIT_ERROR
     except Exception as exc:  # noqa: BLE001 — report it plainly, keep what's done
         if current["run_id"]:
-            local.mark_unfinished(store, current["run_id"], "failed", f"{type(exc).__name__}: {str(exc)[:500]}")
-        _eprint(f"\n\n  ✗ The run stopped: {type(exc).__name__}: {str(exc)[:600]}")
+            local.mark_unfinished(store, current["run_id"], "failed", _scrub(f"{type(exc).__name__}: {str(exc)[:500]}"))
+        _eprint(_scrub(f"\n\n  ✗ The run stopped: {type(exc).__name__}: {str(exc)[:600]}"))
         _eprint("  What finished is saved. Fix the cause, then run the same command again to resume.")
         if "rate limit" in str(exc).lower() or "ratelimit" in type(exc).__name__.lower():
             _eprint("  This is a rate limit: wait for the provider's quota to reset, or use a local judge.")
@@ -192,7 +204,7 @@ def _execute(store, specs, runs, judge, fingerprints, concurrency, use_cache) ->
 
 # ── Writing results ──
 
-def _write_compare(out: Path, store, base_id, cand_id, specs) -> int:
+def _write_compare(out: Path, store, base_id, cand_id, specs, details: bool = False) -> int:
     from redline import local
     from redline.db.models import Run
     from redline.evals.comparison import build_comparison
@@ -205,7 +217,7 @@ def _write_compare(out: Path, store, base_id, cand_id, specs) -> int:
                 _eprint(f"  ✗ Run {getattr(r, 'llm_model', '?')} isn't finished. Run the compare command again to resume it.")
                 return EXIT_ERROR
         cmp = build_comparison(db, base, cand)
-        print(local.format_comparison(cmp, base.llm_model, cand.llm_model))
+        print(local.format_comparison(cmp, base.llm_model, cand.llm_model, details=details))
         (out / "report.html").write_text(render_comparison_report(db, base, cand), encoding="utf-8")
         local.write_jsonl(out / "results.jsonl", local.results_rows(db, base) + local.results_rows(db, cand))
         (out / "summary.json").write_text(json.dumps(cmp, indent=2, default=str, ensure_ascii=False), encoding="utf-8")
@@ -213,7 +225,7 @@ def _write_compare(out: Path, store, base_id, cand_id, specs) -> int:
     return EXIT_PASS if cmp["release"]["decision"] == "PASS" else EXIT_FAIL
 
 
-def _write_scan(out: Path, store, run_id) -> int:
+def _write_scan(out: Path, store, run_id, details: bool = False) -> int:
     from redline import local
     from redline.db.models import Run
     from redline.evals.comparison import run_brief
@@ -224,7 +236,7 @@ def _write_scan(out: Path, store, run_id) -> int:
         if run is None or run.status != "completed":
             _eprint("  ✗ The scan isn't finished. Run the scan command again to resume it.")
             return EXIT_ERROR
-        text, passed = local.format_scan(db, run)
+        text, passed = local.format_scan(db, run, details=details)
         print(text)
         (out / "report.html").write_text(render_run_report(db, run), encoding="utf-8")
         local.write_jsonl(out / "results.jsonl", local.results_rows(db, run))
@@ -253,7 +265,8 @@ def _start(args, specs: list[ModelSpec], command: str) -> tuple[int | None, Path
 
     packs = [p.strip() for p in args.packs.split(",") if p.strip()]
     key = _job_key(command=command, models=[s.raw for s in specs], cases=args.cases, packs=packs, seed=args.seed,
-                   judge=judge, fingerprints=[fingerprints.get(s.raw) for s in specs])
+                   judge=judge, fingerprints=[fingerprints.get(s.raw) for s in specs],
+                   max_tokens=getattr(args, "max_tokens", None))
     print(f"\nRedline {command}: {'  →  '.join(s.raw for s in specs)}")
     print(f"  Cases: {args.cases} from {', '.join(packs)} (seed {args.seed}) · output: {out}")
     _grader_banner(judge, note, specs)
@@ -277,7 +290,8 @@ def _start(args, specs: list[ModelSpec], command: str) -> tuple[int | None, Path
 
         run_ids = [uuid.UUID(r) for r in runs]
         concurrency = args.concurrency or _auto_concurrency(specs)
-        code = _execute(store, specs, run_ids, judge, fingerprints, concurrency, not args.no_cache)
+        opts = {"fast": getattr(args, "fast", False), "max_tokens": getattr(args, "max_tokens", None)}
+        code = _execute(store, specs, run_ids, judge, fingerprints, concurrency, not args.no_cache, opts)
     return code, out, store, run_ids
 
 
@@ -286,7 +300,7 @@ def cmd_compare(args) -> int:
     code, out, store, runs = _start(args, specs, "compare")
     if code is not None:
         return code
-    return _write_compare(out, store, runs[0], runs[1], specs)
+    return _write_compare(out, store, runs[0], runs[1], specs, details=args.details)
 
 
 def cmd_scan(args) -> int:
@@ -294,7 +308,7 @@ def cmd_scan(args) -> int:
     code, out, store, runs = _start(args, specs, "scan")
     if code is not None:
         return code
-    return _write_scan(out, store, runs[0])
+    return _write_scan(out, store, runs[0], details=args.details)
 
 
 def cmd_report(args) -> int:
@@ -310,15 +324,16 @@ def cmd_report(args) -> int:
     store = local.Store(out / "redline.db")
     runs = [uuid.UUID(r) for r in state["runs"]]
     if state.get("command") == "compare" and len(runs) == 2:
-        return _write_compare(out, store, runs[0], runs[1], [parse_model(m) for m in state["models"]])
-    return _write_scan(out, store, runs[0])
+        return _write_compare(out, store, runs[0], runs[1], [parse_model(m) for m in state["models"]], details=args.details)
+    return _write_scan(out, store, runs[0], details=args.details)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="redline", description="Did your model get less safe? Before/after safety checks for models you own.",
-        epilog="Models: ollama/x, openai/x, anthropic/x, groq/x, gemini/x, http://host:port/v1#model, "
-               "fake-safe, fake-degraded. Exit codes: 0 pass, 1 release fails, 2 error.")
+        epilog="Start here: redline try (free key, 2-3 minutes). Models: ollama/x, openai/x, anthropic/x, groq/x, "
+               "gemini/x, openrouter/x, hf/x, http://host:port/v1#model, fake-safe, fake-degraded. "
+               "Exit codes: 0 pass, 1 release fails, 2 error.")
     parser.add_argument("--version", action="version", version=f"redline-evals {_version()}")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -332,6 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--out", default="./redline-out", help="output folder (default ./redline-out)")
         p.add_argument("--concurrency", type=int, default=None, help="cases in flight at once (default: auto)")
         p.add_argument("--no-cache", action="store_true", help="re-generate answers instead of reusing cached ones")
+        p.add_argument("--details", action="store_true", help="show technical details (test names, p-values, graders)")
 
     p = sub.add_parser("compare", help="compare two model versions on the exact same cases")
     p.add_argument("before", help="the current model, e.g. ollama/llama3.1")
@@ -346,7 +362,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("report", help="print the summary again and rewrite report.html / results.jsonl")
     p.add_argument("dir", nargs="?", default="./redline-out", help="output folder of an earlier run (default ./redline-out)")
+    p.add_argument("--details", action="store_true", help="show technical details (test names, p-values, graders)")
     p.set_defaults(func=cmd_report)
+
+    from redline.try_cmd import add_try_parser
+
+    add_try_parser(sub)
     return parser
 
 

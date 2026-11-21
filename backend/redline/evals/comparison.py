@@ -15,6 +15,7 @@ from redline.db.models import Run, RunResult, Testcase
 from redline.evals.case_sets import case_set_for_run, compare_case_sets
 from redline.evals.redaction import maybe_redact
 from redline.evals.run_info import compare_judges
+from redline.evals.plain import plain_block
 from redline.evals.release import TIER_RANK, injection_impact, release_decision, tier_rank
 from redline.utils.tiers import load_tier_config, tier_category
 
@@ -180,6 +181,7 @@ def build_comparison(db: Session, base_run: Run, candidate_run: Run, *, include_
                     "flipped": {"regressions": [], "improvements": []}})
         out["significance"] = significance_block([], [], out["categories"])
         out["release"] = release_decision(out)
+        out["plain"] = plain_block(out)
         out["outputs_redacted"] = not include_full_outputs
         return out
 
@@ -220,6 +222,7 @@ def build_comparison(db: Session, base_run: Run, candidate_run: Run, *, include_
         if cat in out["categories"]:
             out["categories"][cat]["significance"] = sig
     out["release"] = release_decision(out)
+    out["plain"] = plain_block(out)
     for d in details:
         d.pop("data_text", None)  # only needed to word the impact; the prompt and evidence carry the rest
         exp = {"should_refuse": d["should_refuse"]}

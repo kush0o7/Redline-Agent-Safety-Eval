@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import re
 
 import instructor
 from litellm import acompletion
@@ -33,7 +35,7 @@ def judge_model_id() -> str:
     """The LiteLLM model string. An Ollama judge goes through Ollama's OpenAI-compatible /v1
     endpoint, which accepts JSON mode (``response_format``) on every LiteLLM version."""
     model = settings.judge_model or ""
-    if is_ollama_judge(model):
+    if is_ollama_judge(model) or model.lower().startswith("hf/"):
         return "openai/" + model.split("/", 1)[1]
     return model
 
@@ -45,10 +47,13 @@ def judge_credentials() -> dict:
     Settings also loads them from .env without exporting them, so pass them through.
     """
     model = (settings.judge_model or "").lower()
-    if model.startswith("groq/") and settings.groq_api_key:
-        return {"api_key": settings.groq_api_key}
-    if model.startswith("gemini/") and settings.gemini_api_key:
-        return {"api_key": settings.gemini_api_key}
+    env = {"groq/": "GROQ_API_KEY", "gemini/": "GEMINI_API_KEY", "openrouter/": "OPENROUTER_API_KEY"}
+    for prefix, name in env.items():
+        if model.startswith(prefix):
+            key = os.environ.get(name) or getattr(settings, name.lower(), None)
+            return {"api_key": key} if key else {}
+    if model.startswith("hf/"):
+        return {"api_base": "https://router.huggingface.co/v1", "api_key": os.environ.get("HF_TOKEN") or ""}
     if is_ollama_judge(model):
         return {"api_base": settings.ollama_base_url.rstrip("/") + "/v1", "api_key": "ollama"}
     return {}
@@ -123,10 +128,10 @@ async def judge_response(prompt: str, output: str, expected: dict) -> JudgeVerdi
             ),
         },
     ]
-    # One transient judge failure (429, network blip) after 40 paced testcases
-    # shouldn't fail the whole run — retry with backoff before giving up.
+    # One transient judge failure (429, network blip) shouldn't fail the whole run: retry with
+    # backoff, and on a rate limit wait as long as the provider asks (up to MAX_RATE_LIMIT_WAIT).
     last_exc: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(6):
         try:
             verdict: JudgeVerdict = await client.chat.completions.create(
                 model=judge_model_id(),
@@ -139,10 +144,39 @@ async def judge_response(prompt: str, output: str, expected: dict) -> JudgeVerdi
             return verdict
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
-            if attempt < 2:
-                logger.warning("judge call failed (attempt %d/3): %s", attempt + 1, exc)
-                await asyncio.sleep(5 * (attempt + 1))
+            wait = retry_after_seconds(exc)
+            if wait is not None and wait > MAX_RATE_LIMIT_WAIT:
+                raise JudgeQuotaExceeded(
+                    f"The grader ({settings.judge_model}) hit its provider's rate limit and asks to wait "
+                    f"{wait / 60:.0f} min (often a daily cap). Try again later, use fewer --cases, or another --judge."
+                ) from exc
+            if attempt < 5 and (wait is not None or attempt < 2):
+                logger.warning("judge call failed (attempt %d/6): %s", attempt + 1, type(exc).__name__)
+                await asyncio.sleep((wait + 1) if wait is not None else 5 * (attempt + 1))
+            else:
+                break
     raise last_exc  # type: ignore[misc]
+
+
+MAX_RATE_LIMIT_WAIT = 90.0
+_WAIT_RE = re.compile(r"(?:try again|retry) (?:in|after) (?:(\d+)h)?(?:(\d+)m)?([\d.]+)?s?", re.I)
+
+
+class JudgeQuotaExceeded(RuntimeError):
+    """The grader's provider asked for a wait too long to sit out (a daily or hourly cap)."""
+
+
+def retry_after_seconds(exc: Exception) -> float | None:
+    """Seconds a rate-limit error asks us to wait ("Please try again in 5m16.2s"), or None if not a rate limit."""
+    text = str(exc)
+    low = text.lower()
+    if not ("rate limit" in low or "rate_limit" in low or "ratelimit" in low or " 429" in low or "429 " in low):
+        return None
+    m = _WAIT_RE.search(text)
+    if not m or not any(m.groups()):
+        return 10.0
+    h, mins, secs = m.groups()
+    return int(h or 0) * 3600 + int(mins or 0) * 60 + float(secs or 0)
 
 
 class InjectionVerdict(BaseModel):

@@ -4,10 +4,10 @@ These are settings you change on the website, for https://github.com/kush0o7/Red
 
 ## 1. About box (repo home page → ⚙️ next to "About")
 
-**Description** (278 characters):
+**Description** (221 characters, matches the README hook):
 
 ```
-Self-hosted safety regression testing for the AI you own. Runs the same adversarial suite (jailbreaks, prompt injection, hallucination, over-refusal, a finance pack) on every model version, grades agents on what they actually do, and tells you whether a change is real or noise.
+Did your fine-tune just get less safe? Redline runs the same safety tests on two versions of your AI model and tells you in one plain sentence whether to ship. Try it in 2 minutes: pip install redline-evals && redline try
 ```
 
 **Website:**
@@ -20,6 +20,8 @@ https://kush0o7.github.io/Redline-Agent-Safety-Eval/sample-report.html
 
 ```
 ai-safety
+ai-evaluation
+safety-testing
 llm-evaluation
 red-teaming
 prompt-injection
@@ -68,3 +70,7 @@ Open the 8 issues in `docs/starter-issues.md`. Use the heading as the issue titl
 
 - **Actions tab:** the "Tests" workflow runs and goes green. The README badge reads from it, so it says "no status" until the first run.
 - **Settings → Branches (optional):** add a rule for `main` that requires the "Tests" checks to pass before merging pull requests.
+
+## Social preview image (Settings → General → Social preview → Edit → Upload an image)
+
+Upload `docs/social-preview.png` (1280×640). It's what shows up when the repo link is shared on X, LinkedIn, Slack or Hacker News. GitHub crops nothing at this size. To rebuild it after a wording change: `python3 scripts/make_visuals.py` (also rebuilds `docs/demo.gif`).

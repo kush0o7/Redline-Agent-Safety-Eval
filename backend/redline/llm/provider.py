@@ -100,10 +100,14 @@ class OpenAIProvider(BaseProvider):
         self.base_url = base_url or settings.openai_base_url or "https://api.openai.com/v1"
         # Some OpenAI-compatible servers (Gemini's compatibility layer) reject unknown params.
         self.send_seed = send_seed
+        # Optional answer-length cap (the CLI's `redline try` keeps free-tier runs short).
+        self.max_tokens: int | None = None
 
     def _with_seed(self, payload: dict, seed: int) -> dict:
         if self.send_seed:
             payload["seed"] = seed
+        if self.max_tokens:
+            payload["max_tokens"] = self.max_tokens
         return payload
 
     async def complete(self, messages: Sequence[LLMMessage], model: str, temperature: float, seed: int) -> str:
@@ -134,8 +138,8 @@ class OpenAIProvider(BaseProvider):
     async def _post(self, payload: dict) -> dict:
         headers = {"Authorization": f"Bearer {self.api_key}"}
         if "openrouter" in self.base_url:
-            headers["HTTP-Referer"] = "https://redline-safety.fly.dev"
-            headers["X-Title"] = "Redline Safety Evals"
+            headers["HTTP-Referer"] = "https://github.com/kush0o7/Redline-Agent-Safety-Eval"
+            headers["X-Title"] = "Redline"
 
         _MAX_BYTES = 2 * 1024 * 1024
         last_exc: Exception | None = None

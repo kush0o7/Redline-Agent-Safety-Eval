@@ -285,98 +285,127 @@ def _answer_line(d: dict) -> str:
 
 def grader_line(run_info: dict) -> str:
     judge = (run_info or {}).get("judge") or "unknown"
-    return f"{judge} (keyword rules; less reliable than an LLM judge)" if judge == "keyword heuristic" else judge
+    return "keyword rules (less reliable than an AI grader)" if judge == "keyword heuristic" else f"{judge} (AI grader)"
 
 
-def format_comparison(cmp: dict, before: str, after: str, *, max_flips: int = 8) -> str:
+def _pct0(v) -> str:
+    return "—" if v is None else f"{v * 100:.0f}%"
+
+
+def _nick(model: str, n: int = 14) -> str:
+    """A short display name: 'groq/openai/gpt-oss-20b' -> 'gpt-oss-20b'."""
+    name = model.split("#")[-1].rstrip("/").split("/")[-1] or model
+    return name if len(name) <= n else name[: n - 1] + "…"
+
+
+def _wrap(label: str, text: str, width: int = 100) -> str:
+    return f"     {label:<16}{_short(text, width)}"
+
+
+def format_comparison(cmp: dict, before: str, after: str, *, max_flips: int = 8, details: bool = False) -> str:
+    from redline.evals import plain
+
     out: list[str] = []
     p = out.append
-    tc = cmp["tier_change"]
+    pb = cmp.get("plain") or plain.plain_block(cmp)
     regs, imps = cmp["flipped"]["regressions"], cmp["flipped"]["improvements"]
+    b, c = cmp.get("base") or {}, cmp.get("candidate") or {}
+    p("")
+    p(pb["headline"])
+    for note in pb["notes"]:
+        p(f"   · {note}")
     if before.startswith("fake") or after.startswith("fake"):
-        p("\n  ⚠  Simulated models — illustrative results, not a measurement of any real model.")
-    p("\n" + "═" * 78)
-    p(f" SAFETY REGRESSION CHECK   {before}  →  {after}")
-    p("═" * 78)
-    p(f" Graded by:    {grader_line((cmp.get('candidate') or {}).get('run_info') or {})}")
-    jw = (cmp.get("judge") or {}).get("warning")
-    if jw and (cmp.get("judge") or {}).get("base") and (cmp.get("judge") or {}).get("candidate"):
-        p(f"               ⚠ {jw}")
-    p(f" Same cases:   {cmp['common_total']}   (identical case set: {cmp['case_set'].get('identical')})")
-    p(f" Pass rate:    {_pct(cmp['base_pass_rate'])}  →  {_pct(cmp['candidate_pass_rate'])}   ({_pts(cmp['pass_rate_delta']).strip()})")
-    p(f" Tier:         {tc['from']}  →  {tc['to']}   ({tc['direction']})")
-    p(f" Flipped:      {len(regs)} regressions · {len(imps)} improvements (of {cmp['common_total']} shared cases)")
+        p("   · Simulated models — illustrative results, not a measurement of any real model.")
+    w = max(len(before), len(after)) + 2
+    p("")
+    for brief, name in ((b, before), (c, after)):
+        n_pass = round((brief.get("pass_rate") or 0) * (brief.get("total") or 0))
+        p(f"  {name:<{w}} passed {n_pass:>3} of {brief.get('total')} ({_pct0(brief.get('pass_rate')):>4})   "
+          f"safety grade: {brief.get('indicative_tier')}")
+    p(f"  Grader: {grader_line(c.get('run_info') or {})}")
     sig = (cmp.get("significance") or {}).get("overall") or {}
-    if sig:
+    if sig and sig.get("discordant"):
         pv = sig["p_value"]
-        p(f" Significance: {sig['label']}  ({'p<0.001' if pv < 0.001 else f'p={pv:.3f}'}, McNemar exact test)")
-    sp = cmp.get("system_prompt") or {}
-    p(f" System prompt: {sp.get('base')}  →  {sp.get('candidate')}")
+        p(f"  Chance check (McNemar test): {len(regs)} got worse, {len(imps)} got better → "
+          f"{plain.chance_words(sig)} ({'p<0.001' if pv < 0.001 else f'p={pv:.3f}'})")
     rel = cmp["release"]
-    p(f"\n RELEASE DECISION: {rel['decision']} {'✅' if rel['decision'] == 'PASS' else '❌'} — {rel['reason']}")
     if rel["top_risks"]:
-        p(" Top risks:")
+        p("\n  Biggest risks")
         for i, r in enumerate(rel["top_risks"], 1):
-            p(f"  {i}. {r['risk']}  ({r['cases']} case{'' if r['cases'] == 1 else 's'}, severity {r['severity']})")
-    p(f" Recommended action: {rel['recommended_action']}")
-    p("\n Per category                 before      after      change     significance")
+            p(f"   {i}. {r['risk']}  ({r['cases']} test{'' if r['cases'] == 1 else 's'}, {plain.danger(r['severity'])})")
+    p(f"  What to do: {plain.plain_text(rel['recommended_action'])}")
+    na, nb = _nick(before), _nick(after)
+    p(f"\n  {'By area':<46}{na:>14}  {nb:>14}   change")
     for name, g in cmp["categories"].items():
-        b, c = g.get("base") or {}, g.get("candidate") or {}
-        label = (g.get("significance") or {}).get("label", "")
-        p(f"  {name:<26} {_pct(b.get('pass_rate'))}    {_pct(c.get('pass_rate'))}   {_pts(g.get('delta'))}   {label}")
+        bb, cc = g.get("base") or {}, g.get("candidate") or {}
+        sig_label = f"   {(g.get('significance') or {}).get('label', '')}" if details else ""
+        p(f"   {plain.area(name):<45}{_pct0(bb.get('pass_rate')):>14}  {_pct0(cc.get('pass_rate')):>14}   {_pts(g.get('delta')).strip()}{sig_label}")
     if regs:
-        p(f"\n Cases that broke (pass → fail; showing {min(len(regs), max_flips)} of {len(regs)}, most severe first)")
-        for d in regs[:max_flips]:
-            p(f"\n  ✗ {d['name']}  [{d['type']}, severity {d['severity']}, decided by {d['candidate_decided_by']}]")
-            p(textwrap.indent(f"prompt: {_short(d['prompt'])}\nanswer: {_answer_line(d)}", "      "))
-            if d.get("impact"):
-                p(f"      impact:   {_short(d['impact'])}")
-            if d.get("evidence"):
-                p(f"      evidence: {_short(d['evidence'][0])}")
+        p(f"\n  Tests that broke (showing {min(len(regs), max_flips)} of {len(regs)}, most dangerous first)")
+        for d, story in list(zip(regs, pb["broken"]))[:max_flips]:
+            p(f"\n   ✗ {story['name']}  ({story['danger']} · {story['area_short']})")
+            p(_wrap("We asked:", story["asked"]))
+            p(_wrap(f"{_nick(before)}:", story["a_did"]))
+            p(_wrap(f"{_nick(after)}:", story["b_did"]))
+            p(_wrap("Why it matters:", story["why"]))
+            if details:
+                p(_wrap("Graded by:", f"{d.get('candidate_decided_by')} · type {d.get('type')} · severity {d.get('severity')}"))
+                if d.get("evidence"):
+                    p(_wrap("Evidence:", d["evidence"][0]))
+    if details:
+        sp = cmp.get("system_prompt") or {}
+        p(f"\n  Details: release gate {rel['decision']} — {rel['reason']}")
+        p(f"  System prompt: {sp.get('base')} → {sp.get('candidate')} · same tests: {cmp['case_set'].get('identical')} "
+          f"({cmp['common_total']} shared)")
+    else:
+        p("\n  (Technical details: add --details)")
     return "\n".join(out)
 
 
 def scan_verdict(summary: dict) -> tuple[bool, str, str]:
-    """(passed, tier, min_tier) for a single run: its tier must meet the release floor."""
-    from redline.evals.release import release_min_tier, tier_rank
+    from redline.evals.plain import scan_verdict as _sv
 
-    tier_eval = summary.get("tier_evaluation") or {}
-    tier = tier_eval.get("indicative_tier") or summary.get("tier")
-    min_tier = release_min_tier()
-    rank = tier_rank()
-    return rank.get(tier, -1) >= rank.get(min_tier, 0), tier, min_tier
+    return _sv(summary)
 
 
-def format_scan(db, run) -> tuple[str, bool]:
+def format_scan(db, run, *, details: bool = False) -> tuple[str, bool]:
     from redline.db.models import RunResult, Testcase
+    from redline.evals import plain
     from redline.evals.redaction import maybe_redact
+    from redline.utils.tiers import load_tier_config, tier_category
 
     s = run.summary or {}
     passed, tier, min_tier = scan_verdict(s)
     tier_eval = s.get("tier_evaluation") or {}
     out = []
     p = out.append
+    p("")
+    p(plain.scan_headline(run.llm_model, passed, tier, min_tier, s))
+    if (s.get("total") or 0) < 30:
+        p(f"   · Only {s.get('total')} tests: a quick look, not a full check. Use --cases 40 or more before a real release.")
     if run.llm_model.startswith("fake"):
-        p("\n  ⚠  Simulated model — illustrative results, not a measurement of any real model.")
-    p("\n" + "═" * 78)
-    p(f" SAFETY SCAN   {run.llm_model}")
-    p("═" * 78)
-    p(f" Graded by:  {grader_line(s.get('run_info') or {})}")
-    p(f" Pass rate:  {s.get('passed')}/{s.get('total')} ({_pct(s.get('pass_rate')).strip()})")
-    p(f" Tier:       {s.get('tier')}" + (f" (indicative {tier})" if tier_eval.get("provisional") else ""))
-    for reason in (tier_eval.get("reasons") or [])[:3]:
-        p(f"             · {reason}")
-    p(f"\n RESULT: {'✅ PASS' if passed else '❌ FAIL'} — tier {tier} {'meets' if passed else 'is below'} the release floor ({min_tier}).")
-    p("\n Per category")
+        p("   · Simulated model — illustrative results, not a measurement of any real model.")
+    p(f"\n  Grader: {grader_line(s.get('run_info') or {})}")
+    if details:
+        for reason in (tier_eval.get("reasons") or [])[:3]:
+            p(f"  Safety grade reason: {reason}")
+    p(f"\n  {'By area':<46}passed")
     for name, g in sorted((s.get("tier_categories") or {}).items()):
-        p(f"  {name:<26} {_pct(g.get('pass_rate'))}   ({g.get('pass')}/{g.get('total')})")
+        p(f"   {plain.area(name):<45}{_pct0(g.get('pass_rate')):>5}  ({g.get('pass')} of {g.get('total')})")
+    cfg = load_tier_config()
     tcs = {str(t.id): t for t in db.query(Testcase).filter(Testcase.project_id == run.project_id).all()}
     fails = [(tcs.get(str(r.testcase_id)), r) for r in db.query(RunResult).filter(RunResult.run_id == run.id, RunResult.passed.is_(False)).all()]
     fails = sorted([f for f in fails if f[0]], key=lambda f: -(f[0].severity or 0))
     if fails:
-        p(f"\n Failed cases (showing {min(len(fails), 8)} of {len(fails)}, most severe first)")
+        p(f"\n  Failed tests (showing {min(len(fails), 8)} of {len(fails)}, most dangerous first)")
         for tc, r in fails[:8]:
             answer, _ = maybe_redact(r.raw_output, tc.expected_behavior, r.passed, False)
-            p(f"\n  ✗ {tc.name}  [{tc.type}, severity {tc.severity}, decided by {(r.judge_reasoning or {}).get('decided_by')}]")
-            p(textwrap.indent(f"prompt: {_short(tc.prompt)}\nanswer: {_short(answer)}", "      "))
+            cat = tier_category(tc.type, tc.pack, cfg)
+            p(f"\n   ✗ {tc.name}  ({plain.danger(tc.severity)} · {plain.AREA_SHORT.get(cat, plain.area(cat).lower())})")
+            p(_wrap("We asked:", tc.prompt))
+            p(_wrap("It answered:", answer))
+            if details:
+                p(_wrap("Graded by:", f"{(r.judge_reasoning or {}).get('decided_by')} · type {tc.type}"))
+    if not details:
+        p("\n  (Technical details: add --details)")
     return "\n".join(out), passed
