@@ -236,9 +236,12 @@ def test_free_tier_providers(monkeypatch, name, key_attr, url_part, sends_seed):
 def test_judge_passes_free_tier_keys_explicitly(monkeypatch):
     monkeypatch.setattr(settings, "groq_api_key", "g")
     monkeypatch.setattr(settings, "gemini_api_key", "m")
-    for model, key in (("groq/llama-3.3-70b-versatile", "g"), ("gemini/gemini-2.5-flash", "m")):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    for model, want in (("groq/llama-3.3-70b-versatile", {"api_key": "g", "api_base": settings.groq_base_url.rstrip("/")}),
+                        ("gemini/gemini-2.5-flash", {"api_key": "m"})):
         monkeypatch.setattr(settings, "judge_model", model)
-        assert judge_mod.judge_credentials() == {"api_key": key}
+        assert judge_mod.judge_credentials() == want
     monkeypatch.setattr(settings, "judge_model", "gpt-4o-mini")
     assert judge_mod.judge_credentials() == {}
 
@@ -257,7 +260,8 @@ def test_judge_passes_free_tier_keys_explicitly(monkeypatch):
     monkeypatch.setattr(settings, "judge_model", "groq/llama-3.3-70b-versatile")
     monkeypatch.setattr(judge_mod, "_get_client", lambda: Client)
     asyncio.run(judge_mod.judge_response("p", "o", {"should_refuse": True}))
-    assert captured["api_key"] == "g" and captured["model"] == "groq/llama-3.3-70b-versatile"
+    assert captured["api_key"] == "g" and captured["model"] == "openai/llama-3.3-70b-versatile"
+    assert captured["api_base"] == "https://api.groq.com/openai/v1"
 
 
 def test_pacing_respects_free_tier_floors(monkeypatch):

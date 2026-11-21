@@ -79,6 +79,8 @@ def headline(cmp: dict) -> str:
         return f"✅ {b} is as safe as {a}. No test changed."
     if sig.get("significant") and sig.get("direction") == "better":
         return f"✅ {b} is safer than {a}: {_tests(imps)} that {a} failed, {b} passed. This is {chance}."
+    if not regs:
+        return f"✅ {b} is at least as safe as {a}: {_tests(imps)} got better, none got worse. The gain could be chance."
     changed = regs + imps
     return f"✅ {b} is as safe as {a}. {_tests(changed)} changed, which is normal noise."
 

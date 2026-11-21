@@ -43,6 +43,8 @@ def test_headline_fail_on_grade_only():
 def test_headline_pass_variants():
     assert plain.headline(_cmp("PASS")) == "✅ B is as safe as A. No test changed."
     assert plain.headline(_cmp("PASS", regs=1, p=1.0)) == "✅ B is as safe as A. 1 test changed, which is normal noise."
+    assert plain.headline(_cmp("PASS", imps=3, p=0.25)) == \
+        "✅ B is at least as safe as A: 3 tests got better, none got worse. The gain could be chance."
     assert plain.headline(_cmp("PASS", imps=7, p=0.016, significant=True, direction="better")).startswith("✅ B is safer than A: 7 tests")
 
 
@@ -107,8 +109,12 @@ def test_openrouter_and_hf_graders_get_their_keys(monkeypatch):
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test-123456789")
     monkeypatch.setattr(settings, "judge_model", "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free")
-    assert judge.judge_credentials() == {"api_key": "sk-or-test-123456789"}
-    assert judge.judge_model_id() == "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+    assert judge.judge_credentials() == {"api_key": "sk-or-test-123456789", "api_base": "https://openrouter.ai/api/v1"}
+    assert judge.judge_model_id() == "openai/nvidia/nemotron-3-ultra-550b-a55b:free"
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test_123456789")
+    monkeypatch.setattr(settings, "judge_model", "groq/openai/gpt-oss-120b")
+    assert judge.judge_model_id() == "openai/openai/gpt-oss-120b"
+    assert judge.judge_credentials() == {"api_key": "gsk_test_123456789", "api_base": "https://api.groq.com/openai/v1"}
     monkeypatch.setenv("HF_TOKEN", "hf_test_123456789")
     monkeypatch.setattr(settings, "judge_model", "hf/Qwen/Qwen2.5-72B-Instruct")
     assert judge.judge_model_id() == "openai/Qwen/Qwen2.5-72B-Instruct"
@@ -145,11 +151,13 @@ async def test_a_daily_cap_stops_the_grader_with_a_clear_message(monkeypatch):
 def test_try_picks_models_the_key_can_use(monkeypatch):
     def fake_get(url, key=None, timeout=20):
         assert key == "gsk_test_key_123456"
-        return {"data": [{"id": i} for i in ("whisper-large-v3", "openai/gpt-oss-20b", "openai/gpt-oss-120b", "allam-2-7b")]}
+        return {"data": [{"id": i} for i in ("whisper-large-v3", "openai/gpt-oss-20b", "openai/gpt-oss-120b", "allam-2-7b",
+                                               "qwen/qwen3.8-27b", "openai/gpt-oss-safeguard-20b")]}
 
     monkeypatch.setattr(try_cmd, "_get_json", fake_get)
+    # allam-2-7b can't call tools, so it's never picked.
     assert try_cmd.pick_models("groq", "gsk_test_key_123456") == (
-        "groq/openai/gpt-oss-20b", "groq/allam-2-7b", "groq/openai/gpt-oss-120b")
+        "groq/openai/gpt-oss-20b", "groq/qwen/qwen3.8-27b", "groq/openai/gpt-oss-120b")
 
 
 def test_try_openrouter_uses_only_free_tool_models_and_checks_the_daily_quota(monkeypatch):
@@ -216,3 +224,21 @@ def test_version_fallback_matches_pyproject():
 def test_release_reason_reads_plainly():
     assert plain.plain_text("Tier Developing is below the release floor (Safe); 9 new severity-5 regressions.") == \
         "Safety grade Developing is below the bar (Safe); 9 new most dangerous failures."
+
+
+def test_try_maps_a_rejected_key_and_offline_errors(monkeypatch):
+    import httpx
+
+    def reject(url, **kw):
+        return httpx.Response(401, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", reject)
+    with pytest.raises(ModelError, match="didn't accept that key"):
+        try_cmd.pick_models("groq", "bad")
+
+    def offline(url, **kw):
+        raise httpx.ConnectError("no route")
+
+    monkeypatch.setattr(httpx, "get", offline)
+    with pytest.raises(ModelError, match="Are you online"):
+        try_cmd.pick_models("groq", "k")

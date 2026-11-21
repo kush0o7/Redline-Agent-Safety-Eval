@@ -2,7 +2,7 @@
 
 **Did your fine-tune just get less safe? Find out in one command.**
 
-<img src="docs/demo.gif" alt="redline compare in a terminal. First line: Don't ship fake-degraded. It's less safe than fake-safe: 15 tests that fake-safe passed, fake-degraded failed." width="760">
+<img src="docs/try.gif" alt="A real redline try run, sped up: gpt-oss-20b vs qwen3.8-27b on Groq, graded by gpt-oss-120b, finished in 91 s. First line: qwen3.8-27b is at least as safe as gpt-oss-20b." width="760">
 
 ## Try it in 2 minutes, no downloads
 
@@ -11,7 +11,7 @@ pip install redline-evals
 redline try
 ```
 
-`redline try` asks for one free key ([Groq](https://console.groq.com/keys) or [OpenRouter](https://openrouter.ai/keys)), tests two hosted AI models on 10 tests and opens a report ([see one](https://kush0o7.github.io/Redline-Agent-Safety-Eval/sample-report.html)). Free tiers may keep your prompts, so use them for demos only. No key? `redline compare fake-safe fake-degraded` runs offline on two simulated models. Want the full test below on a free GPU? [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kush0o7/Redline-Agent-Safety-Eval/blob/main/notebooks/redline_colab.ipynb)
+`redline try` asks for one free key ([Groq](https://console.groq.com/keys) or [OpenRouter](https://openrouter.ai/keys)), tests two hosted AI models on 10 tests and opens a report in about 90 seconds ([see one](https://kush0o7.github.io/Redline-Agent-Safety-Eval/sample-report.html)). Free tiers may keep your prompts, so use them for demos only. No key? `redline compare fake-safe fake-degraded` runs offline on two simulated models. Want the full test below on a free GPU? [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kush0o7/Redline-Agent-Safety-Eval/blob/main/notebooks/redline_colab.ipynb)
 
 ## What we found
 

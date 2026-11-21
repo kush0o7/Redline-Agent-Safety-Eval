@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import json
 import os
 import sys
-import urllib.error
-import urllib.request
 import webbrowser
 from pathlib import Path
+
+import httpx
 
 from redline.models import FREE_TIER_LINE, OPENROUTER_BASE_URL, ModelError, key_value
 
@@ -24,7 +23,7 @@ KEY_ENV = {"groq": "GROQ_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
 # Preference lists, best first. Whatever the key can't use is skipped.
 GROQ = {
     "before": ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "llama-3.3-70b-versatile", "qwen/qwen3.8-27b", "qwen/qwen3-32b"],
-    "after": ["llama-3.1-8b-instant", "allam-2-7b", "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3.8-27b",
+    "after": ["llama-3.1-8b-instant", "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3.8-27b",
               "qwen/qwen3-32b", "openai/gpt-oss-20b"],
     "judge": ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "qwen/qwen3.8-27b", "qwen/qwen3-32b", "openai/gpt-oss-20b"],
 }
@@ -35,18 +34,21 @@ OPENROUTER = {
     "judge": ["nvidia/nemotron-3-ultra-550b-a55b:free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3.5-super-vl:free",
               "google/gemma-4-26b-a4b-it:free"],
 }
-_NOT_CHAT = ("whisper", "guard", "tts", "orpheus", "playai", "compound", "distil", "lyria", "embed", "safeguard")
+# Not chat models, or chat models without tool calling (the hidden-instruction tests need tools).
+_NOT_CHAT = ("whisper", "guard", "tts", "orpheus", "playai", "compound", "distil", "lyria", "embed", "safeguard", "allam")
 TRY_CASES = 10
 TRY_MAX_TOKENS = 300          # short answers: fast, and the grader's free token budget lasts
 OPENROUTER_REQUESTS = 45      # roughly what a 10-case try needs (answers + grading)
 
 
 def _get_json(url: str, key: str | None = None, timeout: float = 20) -> dict:
+    # httpx ships its own CA bundle (certifi), so this works on python.org macOS builds too.
     headers = {"User-Agent": "redline-cli"}
     if key:
         headers["Authorization"] = "Bearer " + key
-    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as resp:
-        return json.load(resp)
+    resp = httpx.get(url, headers=headers, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _ask_for_key() -> tuple[str, str]:
@@ -95,13 +97,14 @@ def pick_models(provider: str, key: str) -> tuple[str, str, str]:
             ids = [m["id"] for m in models if m["id"].endswith(":free") and m["id"] != "openrouter/free"
                    and "tools" in (m.get("supported_parameters") or [])]
             prefs = OPENROUTER
-    except urllib.error.HTTPError as exc:
-        if exc.code in (401, 403):
-            raise ModelError(f"{provider.capitalize()} didn't accept that key (HTTP {exc.code}). "
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        if code in (401, 403):
+            raise ModelError(f"{provider.capitalize()} didn't accept that key (HTTP {code}). "
                              f"Check it at {SIGNUP[provider]}.") from None
-        raise ModelError(f"Couldn't list {provider.capitalize()} models (HTTP {exc.code}).") from None
-    except urllib.error.URLError as exc:
-        raise ModelError(f"Couldn't reach {provider.capitalize()} ({exc.reason}). Are you online?") from None
+        raise ModelError(f"Couldn't list {provider.capitalize()} models (HTTP {code}).") from None
+    except httpx.RequestError as exc:
+        raise ModelError(f"Couldn't reach {provider.capitalize()} ({type(exc).__name__}: {exc}). Are you online?") from None
     chat = [m for m in ids if not any(x in m.lower() for x in _NOT_CHAT)]
     before = _first(prefs["before"], chat, set()) or (chat[0] if chat else None)
     after = _first(prefs["after"], chat, {before}) or next((m for m in chat if m != before), None)

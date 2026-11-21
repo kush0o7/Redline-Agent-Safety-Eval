@@ -214,7 +214,55 @@ def build_social(lines: list[str], path: Path) -> None:
     im.save(path, optimize=True)
 
 
+def build_try_gif(head: list[str], result: list[str], seconds: int, path: Path) -> float:
+    """A time-compressed replay of a real `redline try` run: the real text, a fast-forwarded clock."""
+    t = Term()
+    frames, durs = [], []
+
+    def add(buf, ms, cursor=False):
+        frames.append(t.frame(buf, cursor))
+        durs.append(ms)
+
+    cmd = "redline try"
+    for i in range(0, len(cmd) + 1):
+        add([("$ " + cmd[:i], FG)], 60, True)
+    buf = [("$ " + cmd, FG)]
+    for ln in soft_wrap(head, t.cols):
+        buf.append((ln.lstrip(CONT), colour(ln)))
+        add(buf, 160)
+    add(buf, 900)
+    steps = [("answering", "A"), ("answering", "B"), ("grading", "A"), ("grading", "B")]
+    for k in range(13):
+        clock = round(seconds * (k + 1) / 13)
+        phase, who = steps[min(k * len(steps) // 13, len(steps) - 1)]
+        add(buf + [(f"  {phase} · model {who} …   {clock // 60}:{clock % 60:02d} elapsed (real time, sped up)", DIM)], 170)
+    buf = [("$ " + cmd, FG)] + [(ln.lstrip(CONT), colour(ln)) for ln in soft_wrap(head, t.cols)][-3:]
+    buf.append((f"  ✓ finished in {seconds} s", GREEN))
+    col = FG
+    for j, ln in enumerate(soft_wrap(result, t.cols)):
+        col = col if ln.startswith(CONT) else colour(ln)
+        buf.append((ln.lstrip(CONT), col))
+        add(buf, 1600 if j == 1 else 110)
+    add(buf, 7000)
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=durs, loop=0, optimize=True)
+    return sum(durs) / 1000
+
+
 def main() -> None:
+    if len(sys.argv) == 5 and sys.argv[1] == "--try":
+        # python3 scripts/make_visuals.py --try <try stdout> <redline report stdout> <seconds>
+        head = [ln for ln in Path(sys.argv[2]).read_text().splitlines()[1:]
+                if ln.strip() and not ln.startswith("Redline try") and "from your environment" not in ln][:7]
+        result = []
+        for ln in Path(sys.argv[3]).read_text().splitlines():
+            if ln.startswith("──") or ln.strip().startswith(("Report:", "Results:")):
+                continue
+            result.append(ln)
+        while result and not result[-1].strip():
+            result.pop()
+        secs = build_try_gif(head, result, int(sys.argv[4]), ROOT / "docs" / "try.gif")
+        print(f"docs/try.gif ({secs:.1f} s, {(ROOT / 'docs' / 'try.gif').stat().st_size // 1024} KB)")
+        return
     lines = run_cli()
     secs = build_gif(lines, ROOT / "docs" / "demo.gif")
     build_social(lines, ROOT / "docs" / "social-preview.png")

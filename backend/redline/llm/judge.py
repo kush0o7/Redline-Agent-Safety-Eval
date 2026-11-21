@@ -8,6 +8,9 @@ import re
 
 import instructor
 from litellm import acompletion
+import litellm as _litellm
+
+_litellm.suppress_debug_info = True  # no 'Give Feedback / Get Help' banners in CLI output
 from pydantic import BaseModel, Field
 
 from redline.core.config import settings
@@ -31,11 +34,27 @@ def _get_client():
     return _judge_clients[mode]
 
 
+# Graders reached through their OpenAI-compatible endpoint (LiteLLM's ``openai/`` route), which
+# works on every LiteLLM version; older versions don't know ``groq/<org>/<model>`` names.
+_OPENAI_COMPAT = ("hf/", "groq/", "openrouter/")
+
+
+def _compat_base(model: str) -> str | None:
+    m = model.lower()
+    if m.startswith("groq/"):
+        return settings.groq_base_url.rstrip("/")
+    if m.startswith("openrouter/"):
+        return "https://openrouter.ai/api/v1"
+    if m.startswith("hf/"):
+        return "https://router.huggingface.co/v1"
+    return None
+
+
 def judge_model_id() -> str:
-    """The LiteLLM model string. An Ollama judge goes through Ollama's OpenAI-compatible /v1
-    endpoint, which accepts JSON mode (``response_format``) on every LiteLLM version."""
+    """The LiteLLM model string. Ollama, Hugging Face, Groq and OpenRouter graders go through an
+    OpenAI-compatible endpoint, which accepts JSON mode (``response_format``) on every LiteLLM version."""
     model = settings.judge_model or ""
-    if is_ollama_judge(model) or model.lower().startswith("hf/"):
+    if is_ollama_judge(model) or model.lower().startswith(_OPENAI_COMPAT):
         return "openai/" + model.split("/", 1)[1]
     return model
 
@@ -47,13 +66,13 @@ def judge_credentials() -> dict:
     Settings also loads them from .env without exporting them, so pass them through.
     """
     model = (settings.judge_model or "").lower()
-    env = {"groq/": "GROQ_API_KEY", "gemini/": "GEMINI_API_KEY", "openrouter/": "OPENROUTER_API_KEY"}
+    env = {"groq/": "GROQ_API_KEY", "gemini/": "GEMINI_API_KEY", "openrouter/": "OPENROUTER_API_KEY", "hf/": "HF_TOKEN"}
     for prefix, name in env.items():
         if model.startswith(prefix):
             key = os.environ.get(name) or getattr(settings, name.lower(), None)
-            return {"api_key": key} if key else {}
-    if model.startswith("hf/"):
-        return {"api_base": "https://router.huggingface.co/v1", "api_key": os.environ.get("HF_TOKEN") or ""}
+            creds = {"api_key": key} if key else {}
+            base = _compat_base(model)
+            return {**creds, "api_base": base} if base else creds
     if is_ollama_judge(model):
         return {"api_base": settings.ollama_base_url.rstrip("/") + "/v1", "api_key": "ollama"}
     return {}

@@ -276,7 +276,7 @@ def test_ollama_judge_uses_json_mode_and_the_openai_compatible_endpoint(monkeypa
     assert judge.judge_credentials() == {"api_base": "http://127.0.0.1:11434/v1", "api_key": "ollama"}
     assert judge._get_client().mode.name == "JSON"
     monkeypatch.setattr(settings, "judge_model", "groq/openai/gpt-oss-120b")
-    assert judge._get_client().mode.name == "TOOLS" and judge.judge_model_id() == "groq/openai/gpt-oss-120b"
+    assert judge._get_client().mode.name == "TOOLS" and judge.judge_model_id() == "openai/openai/gpt-oss-120b"
 
 
 def test_bound_provider_sends_the_real_model_name():
