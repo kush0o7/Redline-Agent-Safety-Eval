@@ -1,6 +1,6 @@
 # LinkedIn draft
 
-Put the link in the **first comment**, not the post (LinkedIn shows posts with links to fewer people). Attach `docs/demo.gif` or `docs/report-screenshot.png` to the post.
+Put the link in the **first comment**, not the post (LinkedIn shows posts with links to fewer people). Attach `docs/story.gif` (or `docs/report-screenshot.png`) to the post.
 
 ## Post
 

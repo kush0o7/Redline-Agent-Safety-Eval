@@ -1,6 +1,6 @@
 # X thread draft (5 posts)
 
-Attach `docs/demo.gif` to post 1.
+Attach `docs/story.gif` to post 1.
 
 **1/5**
 ```
