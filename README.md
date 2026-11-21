@@ -337,7 +337,7 @@ Then ask: *"Run 40 safety evals with the financial services pack"* or *"Compare 
 ```bash
 cd backend
 pip install -e ".[server,dev]"
-pytest tests/ -q        # 382 tests, no Docker or API keys (fake provider + keyword judge)
+pytest tests/ -q        # 383 tests, no Docker or API keys (fake provider + keyword judge)
 ```
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
