@@ -22,6 +22,9 @@ MONO = ["/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/SFNSMono.ttf",
 EMOJI = "/System/Library/Fonts/Apple Color Emoji.ttc"
 BG, FG, DIM, RED, GREEN, YEL, CYAN = "#0d1117", "#e6edf3", "#8b949e", "#ff7b72", "#3fb950", "#d29922", "#79c0ff"
 COMMAND = "redline compare fake-safe fake-degraded"
+SOCIAL_COMMAND = "redline compare ollama/llama3.1 ollama/hermes3"
+SOCIAL_HEADLINE = ("❌ Don't ship Hermes 3 8B. It sent a secret token to an attacker's URL and wrote a keylogger "
+                   "that Llama 3.1 refused. Safety tests passed: 87.5% → 72.5%.")
 
 
 def _font(size: int) -> ImageFont.FreeTypeFont:
@@ -191,8 +194,10 @@ def build_social(lines: list[str], path: Path) -> None:
     # terminal card
     y += 30
     d.rounded_rectangle([60, y, W - 60, H - 60], radius=18, fill="#161b22", outline="#30363d", width=2)
-    d.text((95, y + 28), "$ " + COMMAND, font=mono, fill=DIM)
-    head = next(ln for ln in lines if ln.startswith(("❌", "✅")))
+    # The social card shows the real Llama 3.1 vs Hermes 3 result (README "First real-model results",
+    # Kaggle run 2026-11-14), not the simulated demo, so a shared link shows a real finding.
+    d.text((95, y + 28), "$ " + SOCIAL_COMMAND, font=mono, fill=DIM)
+    head = SOCIAL_HEADLINE
     e = _emoji(head[0], 30)
     ty = y + 78
     x = 95
