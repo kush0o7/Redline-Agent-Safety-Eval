@@ -403,6 +403,25 @@ pytest tests/ -q        # 338 tests, no Docker or API keys (fake provider + keyw
 
 Also available: `make test`. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+### Windows (PowerShell)
+
+From the repository root, use the Python launcher to create a virtual environment;
+Make and virtual-environment activation are not required:
+
+```powershell
+py -3 -m venv .venv
+$env:PYTHONUTF8 = "1"
+$env:LITELLM_LOCAL_MODEL_COST_MAP = "True"
+.\.venv\Scripts\python.exe -m pip install -e "backend[dev]"
+.\.venv\Scripts\python.exe -m pytest backend/tests/ -q
+.\.venv\Scripts\python.exe scripts\demo.py
+```
+
+UTF-8 mode keeps source files, HTML reports and captured CLI output consistent on
+Windows, including in subprocesses. The tests and demo use simulated models and
+need no Docker or API keys. The demo writes its report under `reports/` and opens
+it in your browser.
+
 ### Badge and leaderboard
 
 The API still serves a shields.io badge (`GET /projects/{id}/badge`) and a demo leaderboard (`GET /leaderboard`). They're kept for the public demo, but neither is evidence of safety for a system you own. Use stored runs and version comparisons for that.

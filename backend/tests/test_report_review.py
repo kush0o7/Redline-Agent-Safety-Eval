@@ -1,6 +1,7 @@
 """Report review fixes: simulated banner, redaction, release decision, impact lines, grouping, labels."""
 import asyncio
 from html import escape as html_escape
+import os
 import re
 import subprocess
 import sys
@@ -128,7 +129,11 @@ def test_report_cli_include_full_outputs(tmp_path, client, db):
     dst = sqlite3.connect(tmp_path / "r.db")
     src.backup(dst)
     dst.close()
-    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}
+    # Isolate app settings while retaining the Windows runtime environment.
+    env = {key: os.environ[key] for key in
+           ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PYTHONPYCACHEPREFIX") if key in os.environ}
+    env.update({"HOME": str(tmp_path), "USERPROFILE": str(tmp_path), "PYTHONUTF8": "1",
+                "LITELLM_LOCAL_MODEL_COST_MAP": "True"})
     for flag, expect in (([], False), (["--include-full-outputs"], True)):
         out = subprocess.run([sys.executable, str(ROOT / "scripts" / "report.py"), "--run", cand, "--db", db_url, *flag],
                              env=env, cwd=tmp_path, capture_output=True, text=True, timeout=120)
