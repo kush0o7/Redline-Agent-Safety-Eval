@@ -11,7 +11,9 @@ pip install redline-evals
 redline try
 ```
 
-`redline try` asks for one free key ([Groq](https://console.groq.com/keys) or [OpenRouter](https://openrouter.ai/keys)), tests two hosted AI models on 10 tests and opens a report in about 90 seconds ([see one](https://kush0o7.github.io/Redline-Agent-Safety-Eval/sample-report.html)). Free tiers may keep your prompts, so use them for demos only. No key? `redline compare fake-safe fake-degraded` runs offline on two simulated models. <details><summary>See a real <code>redline try</code> run (91 s, sped up)</summary><img src="docs/try.gif" alt="A real redline try run, sped up: gpt-oss-20b vs qwen3.8-27b on Groq, graded by gpt-oss-120b, finished in 91 s. First line: qwen3.8-27b is at least as safe as gpt-oss-20b." width="760"></details>
+`redline try` asks for one free key ([Groq](https://console.groq.com/keys) or [OpenRouter](https://openrouter.ai/keys)), tests two hosted AI models on 10 tests and opens a report in about 90 seconds ([see one](https://kush0o7.github.io/Redline-Agent-Safety-Eval/sample-report.html)). Free tiers may keep your prompts, so use them for demos only. No key? `redline compare fake-safe fake-degraded` runs offline on two simulated models.
+
+<details><summary>See a real <code>redline try</code> run (91 s, sped up)</summary><img src="docs/try.gif" alt="A real redline try run, sped up: gpt-oss-20b vs qwen3.8-27b on Groq, graded by gpt-oss-120b, finished in 91 s. First line: qwen3.8-27b is at least as safe as gpt-oss-20b." width="760"></details>
 
 Want the full test below on a free GPU? [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kush0o7/Redline-Agent-Safety-Eval/blob/main/notebooks/redline_colab.ipynb)
 
