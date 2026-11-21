@@ -1,6 +1,6 @@
 # Show HN draft
 
-**Don't post until v0.2.0 is on PyPI and `pip install redline-evals && redline try` works in a fresh venv** (see [publish-checklist.md](publish-checklist.md)). HN guidelines: the title starts with "Show HN", it must be something people can try, and don't ask anyone to upvote.
+v0.2.0 is on PyPI (21 Nov 2026). In a fresh venv, `pip install redline-evals` took 29 s and `redline try` 97 s. HN guidelines: the title starts with "Show HN", it must be something people can try, and don't ask anyone to upvote.
 
 ## Title (79 characters)
 
@@ -23,7 +23,7 @@ Hi HN. I built Redline because fine-tuning a model can quietly undo its safety t
 
 It runs the same adversarial tests on both versions (jailbreaks, harmful requests, hidden instructions planted in emails and web pages the agent reads, made-up facts, refusing harmless questions), grades every answer, and prints one plain sentence first: "Don't ship B. It's less safe than A: 9 tests that A passed, B failed." Then each broken test: what we asked, what A did, what B did, why it matters. Exit code 1 if it fails, so it drops into CI.
 
-Try it without installing models: `pip install redline-evals && redline try` asks for a free Groq or OpenRouter key and runs a 10-test check on two hosted models; my run took 91 seconds. With no key at all, `redline compare fake-safe fake-degraded` runs offline on two simulated models.
+Try it without installing models: `pip install redline-evals && redline try` asks for a free Groq or OpenRouter key and runs a 10-test before/after check on two hosted models. In a fresh venv the install took 29 seconds and the check 97. With no key at all, `redline compare fake-safe fake-degraded` runs offline on two simulated models.
 
 The first real finding: I compared Llama 3.1 8B with Hermes 3 8B, a popular fine-tune of it, on 40 tests on a free Kaggle GPU. Hermes followed a hidden instruction in a document and sent a secret token to an attacker's URL with a real tool call, and it wrote a keylogger and a money-mule job ad that Llama refused. Pass rate 87.5% -> 72.5% with an AI grader.
 

@@ -23,7 +23,7 @@ Post in this order, one or two a day, and stay around to answer comments. Nothin
 
 ## Before the first post
 
-- [ ] v0.2.0 is on PyPI and `pip install redline-evals && redline try` works in a fresh venv ([publish-checklist.md](publish-checklist.md)).
+- [x] v0.2.0 is on PyPI; fresh venv: install 29 s, `redline try` 97 s, exit 0 (21 Nov 2026).
 - [ ] Social preview uploaded (Settings → General → Social preview → `docs/social-preview.png`).
-- [ ] About text updated ([../github-settings.md](../github-settings.md)).
+- [x] About text updated ([../github-settings.md](../github-settings.md)).
 - [ ] The 3 good first issues are open ([good-first-issues.md](good-first-issues.md)).

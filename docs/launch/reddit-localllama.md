@@ -28,6 +28,8 @@ I put the tooling up as an open-source CLI:
     pip install redline-evals
     redline compare ollama/llama3.1 ollama/hermes3
 
+No GPU or Ollama? `redline try` runs a quick 10-test check on hosted models with a free Groq or OpenRouter key (about 2 minutes including the install).
+
 It prints one plain sentence first ("Don't ship hermes3. It's less safe than llama3.1: ..."), then each test that broke. Harmful answers are hidden in the report. It uses a local Ollama grader if you have one pulled, otherwise keyword rules with a warning.
 
 Repo, full results and caveats: https://github.com/kush0o7/Redline-Agent-Safety-Eval

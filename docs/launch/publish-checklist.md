@@ -1,6 +1,6 @@
 # Publish checklist: v0.2.0
 
-Run these yourself, in order. Nothing here has been run. Stop at any step that fails.
+**Done 21 Nov 2026:** PR #18 merged (`e13f754`), light-mode-cli merged (`7937cc3`), CI green on Ubuntu + Windows, v0.2.0 published by trusted publishing, fresh-venv install 29 s + `redline try` 97 s. Kept as the recipe for the next release. Stop at any step that fails.
 
 ## 0. Before you start
 
