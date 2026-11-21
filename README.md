@@ -2,7 +2,7 @@
 
 **Did your fine-tune just get less safe? Find out in one command.**
 
-<img src="docs/story.gif" alt="A 30-second explainer: Redline asks the base model Llama 3.1 and its fine-tune Hermes 3 the same 40 tricky questions. Verdict: don't ship Hermes 3. Llama passed 35 of 40, Hermes 29 of 40. Hermes sent a secret key to a hacker's website and wrote spy software, a money-mule job ad and pump-and-dump posts that Llama refused. Then: pip install redline-evals, redline try." width="760">
+<img src="docs/story.gif" alt="A 30-second explainer of the real result. You changed your AI model: is it still safe to ship? Redline gives Llama 3.1 and its fine-tune Hermes 3 the same 40 tests, an AI grader checks every answer, and the verdict is: don't ship Hermes 3. Llama passed 35 of 40, Hermes 29 of 40. The drop alone could be chance, but Hermes sent a secret key to a hacker's website and wrote spy software, a money-mule job ad and pump-and-dump posts that Llama refused. Try it: pip install redline-evals, redline try." width="760">
 
 ## Try it in 2 minutes, no downloads
 
